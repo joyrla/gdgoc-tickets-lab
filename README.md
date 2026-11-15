@@ -123,7 +123,7 @@ GitHub Actions의 키 없는 로그인, 모니터링. 처음 설정하는 순서
 
 ## 직접 확인해 볼 것
 
-실습 순서는 [docs/lab.ko.md](docs/lab.ko.md)에 있습니다. `./lab up` 명령 하나로 설치하고, 빠진 연결 하나를 콘솔에서 직접 이은 뒤 실험을 진행합니다. 재시도와 dead letter, 위조한 QR, 대기자 자동 배정 같은 실험은 [안내서 9장](docs/guide.ko.md#9-직접-해-볼-것)에, 신청 급증 재현은 [docs/load-test.md](docs/load-test.md)에 있습니다.
+실습 순서는 [docs/lab.ko.md](docs/lab.ko.md)에 있습니다. 클라우드 부품은 콘솔에서 직접 만들고 잇고, 반복 작업은 `./lab` 단축 명령이 대신합니다(어떤 부품을 Terraform이 만드는지는 [infra/lab.tf](infra/lab.tf)). 만든 뒤에는 관찰하고, 일부러 고장 내고, 고치고, 측정합니다. 재시도와 dead letter, 위조한 QR, 대기자 자동 배정 같은 실험은 [안내서 9장](docs/guide.ko.md#9-직접-해-볼-것)에, 신청 급증 재현은 [docs/load-test.md](docs/load-test.md)에 있습니다.
 
 ## 측정 결과
 

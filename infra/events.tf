@@ -7,6 +7,7 @@
 # ---------- Pub/Sub: registrations ----------
 
 resource "google_pubsub_topic" "registrations" {
+  count      = local.on.topics ? 1 : 0
   name       = "registrations"
   depends_on = [google_project_service.apis]
 }
@@ -14,13 +15,15 @@ resource "google_pubsub_topic" "registrations" {
 # Messages that failed every retry land here instead of retrying forever, from
 # both topics: the source subscription is on each message (shared/gcp.py)
 resource "google_pubsub_topic" "dead_letter" {
+  count      = local.on.topics ? 1 : 0
   name       = "dead-letter"
   depends_on = [google_project_service.apis]
 }
 
 resource "google_pubsub_subscription" "dead_letter" {
+  count                      = local.on.topics ? 1 : 0
   name                       = "dead-letter"
-  topic                      = google_pubsub_topic.dead_letter.id
+  topic                      = google_pubsub_topic.dead_letter[0].id
   message_retention_duration = "604800s" # keep a week to inspect
   ack_deadline_seconds       = 600       # a replay takes two commands per message (scripts/replay-dead-letters.sh)
 
@@ -31,9 +34,12 @@ resource "google_pubsub_subscription" "dead_letter" {
   }
 }
 
+# The lab creates it as Pull (step 4): messages wait in it until someone takes them.
+# Step 8 switches it to Push, and Pub/Sub delivers each one to ticket-worker.
 resource "google_pubsub_subscription" "ticket_worker" {
+  count                = local.on.topics ? 1 : 0
   name                 = "ticket-worker"
-  topic                = google_pubsub_topic.registrations.id
+  topic                = google_pubsub_topic.registrations[0].id
   ack_deadline_seconds = 60
 
   # By default Pub/Sub deletes a subscription after 31 days without activity,
@@ -42,11 +48,14 @@ resource "google_pubsub_subscription" "ticket_worker" {
     ttl = ""
   }
 
-  push_config {
-    push_endpoint = google_cloud_run_v2_service.svc["ticket-worker"].uri
-    # Pub/Sub signs each push with this identity's token; Cloud Run checks it
-    oidc_token {
-      service_account_email = google_service_account.sa["pubsub-push"].email
+  dynamic "push_config" {
+    for_each = local.on.push ? [1] : []
+    content {
+      push_endpoint = try(google_cloud_run_v2_service.svc["ticket-worker"].uri, local.run_url["ticket-worker"])
+      # Pub/Sub signs each push with this identity's token; Cloud Run checks it
+      oidc_token {
+        service_account_email = local.sa_email["pubsub-push"]
+      }
     }
   }
 
@@ -56,11 +65,11 @@ resource "google_pubsub_subscription" "ticket_worker" {
   }
 
   dead_letter_policy {
-    dead_letter_topic     = google_pubsub_topic.dead_letter.id
+    dead_letter_topic     = google_pubsub_topic.dead_letter[0].id
     max_delivery_attempts = 5
   }
 
-  depends_on = [google_cloud_run_v2_service_iam_member.pubsub_invokes_worker]
+  depends_on = [google_cloud_run_v2_service_iam_member.pubsub_invokes_worker, google_service_account.sa]
 }
 
 # ---------- Pub/Sub: emails ----------
@@ -68,13 +77,15 @@ resource "google_pubsub_subscription" "ticket_worker" {
 # sends them (shared/mail.py). A slow mail server delays a message, never a signup.
 
 resource "google_pubsub_topic" "emails" {
+  count      = local.on.topics ? 1 : 0
   name       = "emails"
   depends_on = [google_project_service.apis]
 }
 
 resource "google_pubsub_subscription" "mailer" {
+  count                = local.on.workers ? 1 : 0
   name                 = "mailer"
-  topic                = google_pubsub_topic.emails.id
+  topic                = try(google_pubsub_topic.emails[0].id, local.topic_id["emails"])
   ack_deadline_seconds = 60
 
   # By default Pub/Sub deletes a subscription after 31 days without activity,
@@ -86,7 +97,7 @@ resource "google_pubsub_subscription" "mailer" {
   push_config {
     push_endpoint = "${google_cloud_run_v2_service.svc["ticket-worker"].uri}/mail"
     oidc_token {
-      service_account_email = google_service_account.sa["pubsub-push"].email
+      service_account_email = try(google_service_account.sa["pubsub-push"].email, local.sa_email["pubsub-push"])
       audience              = google_cloud_run_v2_service.svc["ticket-worker"].uri # the service, not the path
     }
   }
@@ -99,7 +110,7 @@ resource "google_pubsub_subscription" "mailer" {
   # About 4 hours of retries: a mail provider's outage should delay a ticket email,
   # not lose it. Nothing else sends an email again (scripts/replay-dead-letters.sh does, by hand)
   dead_letter_policy {
-    dead_letter_topic     = google_pubsub_topic.dead_letter.id
+    dead_letter_topic     = try(google_pubsub_topic.dead_letter[0].id, local.topic_id["dead-letter"])
     max_delivery_attempts = 50
   }
 
@@ -111,6 +122,7 @@ resource "google_pubsub_subscription" "mailer" {
 # only when a seat-holding registration became cancelled.
 
 resource "google_eventarc_trigger" "registration_changed" {
+  count    = local.on.eventarc ? 1 : 0
   name     = "registration-changed"
   location = var.region # the Firestore database's location
 
@@ -120,7 +132,7 @@ resource "google_eventarc_trigger" "registration_changed" {
   }
   matching_criteria {
     attribute = "database"
-    value     = google_firestore_database.main.name
+    value     = "(default)"
   }
   matching_criteria {
     attribute = "document"
@@ -131,15 +143,17 @@ resource "google_eventarc_trigger" "registration_changed" {
 
   destination {
     cloud_run_service {
-      service = google_cloud_run_v2_service.svc["waitlist-promoter"].name
+      service = "waitlist-promoter"
       region  = var.region
     }
   }
 
-  service_account = google_service_account.sa["eventarc"].email
+  service_account = local.sa_email["eventarc"]
 
   # The roles that broke the ARC104 lab when they were missing
   depends_on = [
+    google_firestore_database.main,
+    google_cloud_run_v2_service.svc,
     google_project_iam_member.eventarc_receiver,
     google_cloud_run_v2_service_iam_member.eventarc_invokes_promoter,
   ]
@@ -150,6 +164,7 @@ resource "google_eventarc_trigger" "registration_changed" {
 # there is no single opening time or deadline (jobs/housekeeping.py).
 
 resource "google_cloud_scheduler_job" "housekeeping" {
+  count     = local.on.schedule ? 1 : 0
   name      = "housekeeping"
   region    = var.region
   schedule  = "*/5 * * * *"
@@ -157,11 +172,11 @@ resource "google_cloud_scheduler_job" "housekeeping" {
 
   http_target {
     http_method = "POST"
-    uri         = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.housekeeping.name}:run"
+    uri         = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.housekeeping[0].name}:run"
     oauth_token {
-      service_account_email = google_service_account.sa["scheduler"].email
+      service_account_email = local.sa_email["scheduler"]
     }
   }
 
-  depends_on = [google_cloud_run_v2_job_iam_member.scheduler_runs_housekeeping]
+  depends_on = [google_cloud_run_v2_job_iam_member.scheduler_runs_housekeeping, google_service_account.sa]
 }

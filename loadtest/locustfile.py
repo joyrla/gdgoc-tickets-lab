@@ -13,11 +13,13 @@ which never receive mail. Never point it at a deployment that sends real email.
 """
 
 import itertools
+import os
 import random
 import statistics
 import time
 import uuid
 from collections import Counter
+from datetime import datetime
 
 import gevent
 from locust import FastHttpUser, events, task
@@ -35,6 +37,11 @@ visitors: list["Visitor"] = []
 @events.init_command_line_parser.add_listener
 def _arguments(parser):
     parser.add_argument("--event-id", default="", help="The event to sign up for: the last part of its page address")
+    parser.add_argument(
+        "--burst",
+        action="store_true",
+        help="Everyone arrives before the opening and signs up when the countdown ends, within about a second",
+    )
 
 
 @events.request.add_listener
@@ -50,6 +57,7 @@ class Visitor(FastHttpUser):
     def on_start(self):
         self.event_id = self.environment.parsed_options.event_id
         self.state = None  # the event's state: upcoming, open, waitlist, full, closed
+        self.opens_in = 0.0  # seconds until signups open, by the server's clock
         self.registration_id = None
         self.signed_up_at = 0.0
         self.ticket = None  # this visitor's ticket status once signed up
@@ -68,8 +76,14 @@ class Visitor(FastHttpUser):
             self.watch_ticket()
             return
         self.check_status()
+        burst = self.environment.parsed_options.burst
+        if burst and self.state == "upcoming" and self.opens_in < 8:
+            # The page's countdown reaches zero, refreshes the status and enables the button
+            gevent.sleep(max(0.0, self.opens_in))
+            self.check_status()
         if self.state in ("open", "waitlist"):
-            gevent.sleep(random.uniform(1, 8))  # reading the page and filling in the form
+            # A person reads the page and fills in the form; in a burst they are already waiting
+            gevent.sleep(random.uniform(0.2, 1.0) if burst else random.uniform(1, 8))
             self.sign_up()
 
     def check_status(self):
@@ -77,13 +91,17 @@ class Visitor(FastHttpUser):
             f"/api/events/{self.event_id}/status", name="/api/events/[id]/status", catch_response=True
         ) as answer:
             if answer.status_code == 200:
-                self.state = answer.json()["state"]
+                data = answer.json()
+                self.state = data["state"]
+                opens = datetime.fromisoformat(data["opens_at"]) - datetime.fromisoformat(data["server_time"])
+                self.opens_in = opens.total_seconds()
             else:
                 answer.failure(f"status {answer.status_code}")
 
     def sign_up(self):
         n = next(numbers)
-        body = {"name": f"부하 테스트 {n}", "email": f"load-{RUN}-{n}@example.com", "affiliation": ""}
+        # The process id keeps addresses apart when locust runs several processes (--processes)
+        body = {"name": f"부하 테스트 {n}", "email": f"load-{RUN}-{os.getpid()}-{n}@example.com", "affiliation": ""}
         with self.client.post(
             f"/api/events/{self.event_id}/registrations",
             json=body,

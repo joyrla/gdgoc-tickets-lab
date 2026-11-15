@@ -42,7 +42,7 @@ permissions:
   contents: read
 
 env:
-  TERRAFORM_VERSION: "1.5.7"
+  TERRAFORM_VERSION: "1.9.8"
 
 # A newer push cancels an older run on pull requests. On main it waits instead:
 # cancelling a deploy halfway could leave services on different versions.
@@ -93,6 +93,8 @@ jobs:
       - run: terraform fmt -check -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate
+      # Plans every stage of the lab against a pretend Google Cloud (infra/tests)
+      - run: terraform test
 
   emulator:
     runs-on: ubuntu-latest

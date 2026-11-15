@@ -3,6 +3,7 @@
 # secrets in Secret Manager.
 
 resource "google_firestore_database" "main" {
+  count       = local.on.database ? 1 : 0
   name        = "(default)"
   location_id = var.region
   type        = "FIRESTORE_NATIVE"
@@ -21,26 +22,31 @@ resource "google_firestore_database" "main" {
 # A full copy every day, kept for 7 days (restores into a new database)
 resource "google_firestore_backup_schedule" "daily" {
   count     = var.production_extras ? 1 : 0
-  database  = google_firestore_database.main.name
+  database  = "(default)"
   retention = "604800s"
   daily_recurrence {}
+
+  depends_on = [google_firestore_database.main]
 }
 
 # Personal data has an end date. Each signup writes expire_at (event day +
 # retention_days, shared/gcp.py) and Firestore deletes the document after it.
 # Sign-in codes and the sent-email records expire the same way.
 resource "google_firestore_field" "ttl" {
-  for_each   = toset(["registrations", "codes", "emails", "login_codes", "sent_emails"])
-  database   = google_firestore_database.main.name
+  for_each   = local.on.base ? toset(["registrations", "codes", "emails", "login_codes", "sent_emails"]) : []
+  database   = "(default)" # built by hand in the lab (step 2)
   collection = each.value
   field      = "expire_at"
 
   ttl_config {}
   index_config {} # no index needed on this field
+
+  depends_on = [google_firestore_database.main]
 }
 
 # QR codes and posters. Private: web reads files and serves them itself.
 resource "google_storage_bucket" "assets" {
+  count                       = local.on.base ? 1 : 0
   name                        = "${var.project_id}-assets"
   location                    = var.region
   uniform_bucket_level_access = true
@@ -62,21 +68,18 @@ resource "google_storage_bucket" "assets" {
 
 # Secrets. Terraform generates them, which also means their values are stored
 # in the Terraform state file: keep the state in a private bucket (versions.tf).
+locals {
+  generated_secrets = local.on.base ? toset(["ticket-secret", "session-secret"]) : toset([])
+}
+
 resource "random_password" "secret" {
-  for_each = toset(["ticket-secret", "session-secret"])
+  for_each = local.generated_secrets
   length   = 32
   special  = false
 }
 
-locals {
-  secret_values = {
-    ticket-secret  = random_password.secret["ticket-secret"].result
-    session-secret = random_password.secret["session-secret"].result
-  }
-}
-
 resource "google_secret_manager_secret" "secrets" {
-  for_each  = local.secret_values
+  for_each  = local.generated_secrets
   secret_id = each.key
   replication {
     auto {}
@@ -85,9 +88,9 @@ resource "google_secret_manager_secret" "secrets" {
 }
 
 resource "google_secret_manager_secret_version" "secrets" {
-  for_each    = local.secret_values
+  for_each    = local.generated_secrets
   secret      = google_secret_manager_secret.secrets[each.key].id
-  secret_data = each.value
+  secret_data = random_password.secret[each.key].result
 }
 
 # The email provider's key (Resend). Terraform makes the empty secret; a person adds the
@@ -95,6 +98,7 @@ resource "google_secret_manager_secret_version" "secrets" {
 #   gcloud secrets versions add smtp-password --data-file=-
 # then sets mail_enabled = true and applies again.
 resource "google_secret_manager_secret" "smtp_password" {
+  count     = local.on.base ? 1 : 0
   secret_id = "smtp-password"
   replication {
     auto {}
@@ -106,6 +110,7 @@ resource "google_secret_manager_secret" "smtp_password" {
 # code, the Terraform state or the service's settings:
 #   printf 'noreply@your-verified-domain' | gcloud secrets versions add mail-from --data-file=-
 resource "google_secret_manager_secret" "mail_from" {
+  count     = local.on.base ? 1 : 0
   secret_id = "mail-from"
   replication {
     auto {}
@@ -116,7 +121,8 @@ resource "google_secret_manager_secret" "mail_from" {
 # The waitlist query: one event's waiting registrations, oldest first
 # (shared/gcp.py promote_next, waitlist_position)
 resource "google_firestore_index" "waitlist" {
-  database   = google_firestore_database.main.name
+  count      = local.on.base ? 1 : 0
+  database   = "(default)"
   collection = "registrations"
 
   fields {
@@ -131,4 +137,6 @@ resource "google_firestore_index" "waitlist" {
     field_path = "created_at"
     order      = "ASCENDING"
   }
+
+  depends_on = [google_firestore_database.main]
 }

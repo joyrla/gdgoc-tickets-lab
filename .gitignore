@@ -8,4 +8,5 @@ infra/*.tfstate*
 infra/terraform.tfvars
 .ruff_cache/
 infra/backend.hcl
-infra/lab.*
+infra/lab.tfplan
+infra/lab.*.txt

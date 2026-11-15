@@ -14,7 +14,9 @@ locals {
     "sts.googleapis.com",
   ]
   extra_apis = ["recaptchaenterprise.googleapis.com", "monitoring.googleapis.com"]
-  apis       = concat(local.core_apis, var.production_extras ? local.extra_apis : [])
+  # ./lab check 0 reads the budget through this API
+  lab_apis = local.lab ? ["billingbudgets.googleapis.com"] : []
+  apis     = concat(local.core_apis, var.production_extras ? local.extra_apis : [], local.lab_apis)
 
   # Each service runs as its own identity and gets only the roles it needs (iam.tf)
   service_accounts = {
@@ -36,6 +38,7 @@ resource "google_project_service" "apis" {
 }
 
 resource "google_artifact_registry_repository" "images" {
+  count         = local.on.start ? 1 : 0
   repository_id = "gdgoc-tickets"
   location      = var.region
   format        = "DOCKER"
@@ -61,7 +64,7 @@ resource "google_artifact_registry_repository" "images" {
 }
 
 resource "google_service_account" "sa" {
-  for_each     = local.service_accounts
+  for_each     = local.on.base ? local.service_accounts : {}
   account_id   = "tickets-${each.key}"
   display_name = each.value
 }

@@ -16,7 +16,7 @@
 # monitoring starts at the service (requests, latency, instances) and the work.
 
 locals {
-  web_host = trimprefix(google_cloud_run_v2_service.svc["web"].uri, "https://")
+  web_host = trimprefix(try(google_cloud_run_v2_service.svc["web"].uri, local.web_url), "https://")
   channels = var.production_extras && var.alert_email != "" ? [google_monitoring_notification_channel.email[0].name] : []
 }
 
@@ -153,7 +153,7 @@ resource "google_monitoring_alert_policy" "dead_letters" {
   conditions {
     display_name = "messages waiting in dead-letter"
     condition_threshold {
-      filter          = "metric.type=\"pubsub.googleapis.com/subscription/num_undelivered_messages\" resource.type=\"pubsub_subscription\" resource.label.\"subscription_id\"=\"${google_pubsub_subscription.dead_letter.name}\""
+      filter          = "metric.type=\"pubsub.googleapis.com/subscription/num_undelivered_messages\" resource.type=\"pubsub_subscription\" resource.label.\"subscription_id\"=\"dead-letter\""
       comparison      = "COMPARISON_GT"
       threshold_value = 0
       duration        = "60s"
@@ -175,7 +175,7 @@ resource "google_monitoring_alert_policy" "ticket_backlog" {
   conditions {
     display_name = "oldest unacknowledged registration message older than 5 min"
     condition_threshold {
-      filter          = "metric.type=\"pubsub.googleapis.com/subscription/oldest_unacked_message_age\" resource.type=\"pubsub_subscription\" resource.label.\"subscription_id\"=\"${google_pubsub_subscription.ticket_worker.name}\""
+      filter          = "metric.type=\"pubsub.googleapis.com/subscription/oldest_unacked_message_age\" resource.type=\"pubsub_subscription\" resource.label.\"subscription_id\"=\"ticket-worker\""
       comparison      = "COMPARISON_GT"
       threshold_value = 300 # seconds
       duration        = "300s"
@@ -197,7 +197,7 @@ resource "google_monitoring_alert_policy" "mail_backlog" {
   conditions {
     display_name = "oldest unacknowledged email message older than 15 min"
     condition_threshold {
-      filter          = "metric.type=\"pubsub.googleapis.com/subscription/oldest_unacked_message_age\" resource.type=\"pubsub_subscription\" resource.label.\"subscription_id\"=\"${google_pubsub_subscription.mailer.name}\""
+      filter          = "metric.type=\"pubsub.googleapis.com/subscription/oldest_unacked_message_age\" resource.type=\"pubsub_subscription\" resource.label.\"subscription_id\"=\"mailer\""
       comparison      = "COMPARISON_GT"
       threshold_value = 900 # seconds
       duration        = "300s"
@@ -213,7 +213,7 @@ resource "google_monitoring_alert_policy" "mail_backlog" {
 # shows up as a web error. It reports zeros between runs, so "no successful run" is a
 # sum below 1; the second condition covers the metric going silent altogether.
 locals {
-  job_succeeded = "metric.type=\"run.googleapis.com/job/completed_task_attempt_count\" resource.type=\"cloud_run_job\" resource.label.\"job_name\"=\"${google_cloud_run_v2_job.housekeeping.name}\" metric.label.\"result\"=\"succeeded\""
+  job_succeeded = "metric.type=\"run.googleapis.com/job/completed_task_attempt_count\" resource.type=\"cloud_run_job\" resource.label.\"job_name\"=\"housekeeping\" metric.label.\"result\"=\"succeeded\""
 }
 
 resource "google_monitoring_alert_policy" "job_stopped" {

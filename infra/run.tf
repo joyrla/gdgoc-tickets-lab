@@ -1,6 +1,9 @@
 # The three Cloud Run services and the job.
 # Terraform owns their configuration; CI owns the image. That is why the image is
 # in ignore_changes: a deploy from GitHub Actions is not "drift".
+#
+# In the lab, students deploy web (step 5) and the job (step 12) by hand; ./lab workers
+# deploys the two workers (step 6). ./lab env prints the settings to paste.
 
 locals {
   # web's address, known before it exists: https://SERVICE-PROJECT_NUMBER.REGION.run.app
@@ -12,7 +15,7 @@ locals {
   common_env = {
     BACKEND         = "gcp"
     GCP_PROJECT     = var.project_id
-    ASSETS_BUCKET   = google_storage_bucket.assets.name
+    ASSETS_BUCKET   = try(google_storage_bucket.assets[0].name, "${var.project_id}-assets")
     PUBLIC_BASE_URL = local.web_url
     ADMIN_EMAILS    = join(",", var.admin_emails)
     STAFF_EMAILS    = join(",", var.staff_emails)
@@ -39,13 +42,14 @@ locals {
       timeout     = "300s"
       memory      = "512Mi"
       env = merge({
-        CONTACT_EMAIL             = var.contact_email                           # shown in the privacy policy, only if set
-        GOOGLE_CLIENT_ID          = var.google_client_id                        # Sign in with Google: a public value
-        DEAD_LETTER_SUBSCRIPTION  = google_pubsub_subscription.dead_letter.name # the admin page shows what waits here
+        CONTACT_EMAIL             = var.contact_email    # shown in the privacy policy, only if set
+        GOOGLE_CLIENT_ID          = var.google_client_id # Sign in with Google: a public value
+        DEAD_LETTER_SUBSCRIPTION  = "dead-letter"        # the admin page shows what waits here
         SIGNUPS_PER_MINUTE_PER_IP = tostring(var.signups_per_minute_per_ip)
       }, var.production_extras ? { RECAPTCHA_SITE_KEY = google_recaptcha_enterprise_key.signup[0].name } : {})
       secrets = { TICKET_SECRET = "ticket-secret", SESSION_SECRET = "session-secret" }
       latest  = {}
+      part    = "web"
     }
     ticket-worker = {
       name        = "ticket-worker"
@@ -61,9 +65,10 @@ locals {
       # Only this service sends email, so only it can read the provider's key and the from-address.
       # A person adds those values (data.tf), so it reads "latest" at instance start.
       latest = var.mail_enabled ? {
-        SMTP_PASSWORD = google_secret_manager_secret.smtp_password.secret_id
-        MAIL_FROM     = google_secret_manager_secret.mail_from.secret_id
+        SMTP_PASSWORD = try(google_secret_manager_secret.smtp_password[0].secret_id, "smtp-password")
+        MAIL_FROM     = try(google_secret_manager_secret.mail_from[0].secret_id, "mail-from")
       } : {}
+      part = "workers"
     }
     waitlist-promoter = {
       name        = "waitlist-promoter"
@@ -77,12 +82,19 @@ locals {
       env         = {}
       secrets     = {}
       latest      = {}
+      part        = "workers"
     }
+  }
+
+  # The lab's first images come from Cloud Build (./lab start); otherwise a placeholder
+  # until CI deploys
+  first_image = { for name in ["web", "ticket-worker", "waitlist-promoter", "housekeeping"] :
+    name => var.lab_image_tag != "" ? "${local.registry}/${name}:${var.lab_image_tag}" : var.initial_image
   }
 }
 
 resource "google_cloud_run_v2_service" "svc" {
-  for_each            = local.services
+  for_each            = { for k, v in local.services : k => v if local.on[v.part] }
   name                = each.value.name
   location            = var.region
   ingress             = each.value.ingress
@@ -105,7 +117,7 @@ resource "google_cloud_run_v2_service" "svc" {
     timeout                          = each.value.timeout
 
     containers {
-      image = var.initial_image
+      image = local.first_image[each.key]
 
       resources {
         limits            = { cpu = "1", memory = each.value.memory }
@@ -174,6 +186,7 @@ resource "google_cloud_run_v2_service" "svc" {
 # Every 5 minutes (events.tf): pre-warm web around openings, remind people to
 # confirm, release unconfirmed seats after the deadline (jobs/housekeeping.py)
 resource "google_cloud_run_v2_job" "housekeeping" {
+  count               = local.on.schedule ? 1 : 0
   name                = "housekeeping"
   location            = var.region
   deletion_protection = false
@@ -182,16 +195,16 @@ resource "google_cloud_run_v2_job" "housekeeping" {
     task_count = 1
 
     template {
-      service_account = google_service_account.sa["housekeeping"].email
+      service_account = try(google_service_account.sa["housekeeping"].email, local.sa_email["housekeeping"])
       max_retries     = 0 # the next run in 5 minutes is the retry
       timeout         = "240s"
 
       containers {
-        image = var.initial_job_image
+        image = var.lab_image_tag != "" ? local.first_image["housekeeping"] : var.initial_job_image
 
         dynamic "env" {
           for_each = merge(local.common_env, {
-            WEB_SERVICE            = google_cloud_run_v2_service.svc["web"].id
+            WEB_SERVICE            = try(google_cloud_run_v2_service.svc["web"].id, "projects/${var.project_id}/locations/${var.region}/services/${var.web_service_name}")
             WEB_MIN_INSTANCES      = tostring(var.web_min_instances)
             PREWARM_INSTANCES      = tostring(var.prewarm.instances)
             PREWARM_MINUTES_BEFORE = tostring(var.prewarm.minutes_before)

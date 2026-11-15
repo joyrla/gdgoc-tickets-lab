@@ -15,6 +15,7 @@ from the service's own identity, so there are no keys anywhere.
 
 import hashlib
 import json
+import logging
 import os
 import random
 import secrets
@@ -38,9 +39,10 @@ from .models import (
     Registration,
     new_ticket_code,
 )
-from .runtime import current_trace
+from .runtime import current_trace, event
 
 PROJECT = os.environ.get("GCP_PROJECT", "")
+log = logging.getLogger(__name__)
 
 
 # ---------- Firestore (store) ----------
@@ -90,15 +92,21 @@ def _run(attempt):
     aborts transactions that collide. Waiting a random, growing moment and trying
     again spreads them out (the backoff Firestore's documentation recommends).
     """
+    fn = getattr(attempt, "to_wrap", attempt)  # @firestore.transactional keeps the function here
+    where = getattr(fn, "__qualname__", "transaction").split(".")[0]  # the store function, e.g. "register"
     for n in range(20):
         try:
             # One try per transaction; the library would retry at once, without waiting
-            return attempt(_db().transaction(max_attempts=1))
+            result = attempt(_db().transaction(max_attempts=1))
+            if n:  # contention: countable in Logging as event="transaction_retried"
+                event(log, "transaction_retried", f"{where} committed on attempt {n + 1}", where=where, attempts=n + 1)
+            return result
         except (Aborted, ValueError) as exc:
             # The library reports a failed commit as ValueError("Failed to commit ...")
             if isinstance(exc, ValueError) and not str(exc).startswith("Failed to commit"):
                 raise
             if n == 19:
+                event(log, "transaction_gave_up", f"{where} gave up after 20 attempts", where=where, attempts=20)
                 raise
             time.sleep(random.uniform(0.05, 0.25) * 2 ** min(n, 4))
 

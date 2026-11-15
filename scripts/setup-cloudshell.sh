@@ -9,7 +9,7 @@
 #   ./scripts/setup-cloudshell.sh
 set -euo pipefail
 
-TERRAFORM=1.5.7 # the version CI uses (.github/workflows/ci.yml)
+TERRAFORM=1.9.8 # the version CI uses (.github/workflows/ci.yml)
 GH=2.102.1
 JQ=1.8.2
 LOCUST=2.47.0 # the load test (loadtest/locustfile.py)
