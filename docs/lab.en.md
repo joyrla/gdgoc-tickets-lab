@@ -35,6 +35,8 @@ You build and run an event signup site in your own Google Cloud project. The app
 
 **Parts of each step:** Problem → Do → Predict → Where to look → Check → Why, If stuck.
 
+**Submission cues:** **Submit 1** to **Submit 6** at the end of a step are required screenshots; **Optional** marks screenshots you may add. The details are in [Submission](#submission) at the end.
+
 **When stuck:** if you're stuck for more than 20 minutes, post the step number, the output of `./lab check STEP` and the error screen in the help thread. To move on without waiting, `./lab skip STEP` builds that step and you go to the next one. Skipped steps are marked in the report.
 
 ## Where to look
@@ -202,7 +204,7 @@ Once you've created everything, running `./lab base` creates nothing new.
 
 **Where to look.** The table from `./lab iam`. The same information is spread across ☰ → **IAM & Admin → IAM** and each resource's **Permissions** tab.
 
-**Check.** `./lab check 3`. You're done when you can pick one account in `./lab iam` and say what each of its permissions is for (quiz question 7).
+**Check.** `./lab check 3`. You're done when you can pick one account in `./lab iam` and say what each of its permissions is for (the optional question for step 3).
 
 **Why.** If one service is compromised, the damage is limited to that service's permissions. `web` can't read the mail password, and the worker can't change `web`. Where possible, a permission is granted on one resource (one bucket, one secret).
 
@@ -307,7 +309,7 @@ This time a green check appears, and the service URL shows the home page. `./lab
 
 **Why.** A service runs as its own service account, and it can't use permissions that account doesn't have. You granted the permission on one secret, not on the whole project. So `web` can't read the mail password (`smtp-password`).
 
-> **S1:** the failed revision's message, then the working service
+> **Optional:** the failed revision's message, then the working service
 
 **If stuck.** `runs as ... not tickets-web`: the service account on the **Security** tab. If the variables merged into one line, fix them one by one under **Variables & Secrets**. Or `./lab skip 5`.
 
@@ -395,7 +397,7 @@ What it creates: the two workers, the `mailer` subscription (the path sign-in co
 
 **Why.** `web` saved the seat in Firestore, left a message, and replied at once. A pull subscription only holds the message until someone pulls it. The message isn't lost.
 
-> **S2:** the waiting message and the ticket page showing 티켓 발급 중
+> **Optional:** the waiting message and the ticket page showing 티켓 발급 중
 
 **If stuck.** If no code appears, run the query again after 30 seconds. `mail_off` error: the email you entered at `/login` differs from `ADMIN_EMAILS` (`./lab env web`).
 
@@ -417,7 +419,7 @@ What it creates: the two workers, the `mailer` subscription (the path sign-in co
 
 **Where to look.** ☰ → **Cloud Run** → `ticket-worker` → **Observability → Logs**.
 
-**Check.** `403` and `The request was not authenticated` repeat. Once you see it 2 or 3 times, fix it right away (after 5 failures the message moves to `dead-letter`).
+**Check.** `403` and `The request was not authenticated` repeat. Once you see it 2 or 3 times, take the screenshot (**Submit 1**) and fix it right away (after 5 failures the message moves to `dead-letter`).
 1. Subscription → **Edit** → tick **Enable authentication** → service account `tickets-pubsub-push` → **Update**.
 2. Within 1 to 2 minutes, the ticket from step 7 is issued. Don't sign up again.
 
@@ -425,7 +427,7 @@ What it creates: the two workers, the `mailer` subscription (the path sign-in co
 
 **Why.** `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub can get in. But it is set to **Require authentication**, so an unsigned request gets a 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, and this account is `ticket-worker`'s **Cloud Run Invoker** (`./lab iam`). Getting through the door (ingress) and having the right to enter (IAM) are separate.
 
-> **S3:** the 403 logs and the issued ticket
+> **Submit 1 screenshot:** the `403` logs (before the fix), the issued ticket (after the fix)
 
 **If stuck.** If the ticket still shows 티켓 발급 중 after the fix, the message has already gone to `dead-letter`. Sign up once more. Or `./lab skip 8`.
 
@@ -445,7 +447,7 @@ What it creates: the two workers, the `mailer` subscription (the path sign-in co
 
 **Why.** The receiver first checks whether the ticket was already issued. Getting the same result however many times the same work runs is idempotency (`issue` in `ticket_worker/main.py`).
 
-> **S4:** the `skip` log
+> **Optional:** the `skip` log
 
 ## Step 10. Worker failure, retries, dead letter (experiment, 25 min)
 
@@ -463,7 +465,7 @@ What it creates: the two workers, the `mailer` subscription (the path sign-in co
 - ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Dead lettering** tab: the settings from step 4
 - About 3 minutes later, subscription `dead-letter` → **Messages** → **Pull** (ack unticked)
 
-**Check.** The signup succeeds. The 500s repeat at growing intervals, then stop, and the message is in `dead-letter`.
+**Check.** The signup succeeds. The 500s repeat at growing intervals, then stop, and the message is in `dead-letter`. Take both screenshots before you fix it (**Submit 2**).
 
 Now fix it.
 1. On the same screen, delete `WORKER_FAIL_RATE` and click **Deploy**. Check that the new revision has 100%.
@@ -477,7 +479,7 @@ Now fix it.
 
 **Why.** Signup and issuing are split by a message, so signups still come in while the worker is broken. Retries fix temporary failures, and the growing gaps keep a broken service from being flooded. A bug isn't fixed by retrying, so after 5 attempts a person looks at it.
 
-> **S5:** the repeating 500 logs, the message waiting in `dead-letter`
+> **Submit 2 screenshot:** the `500` logs repeating at growing intervals, the message waiting in `dead-letter` (both before the fix)
 
 **If stuck.** If there are 2 or more messages, the job that runs every 5 minutes sent the stuck ticket again (from step 12 on). That's normal.
 
@@ -520,7 +522,7 @@ Then the experiment. New event `promo`: seats 1, waitlist 1.
 
 **Why.** When a cancellation changes a Firestore document, Eventarc delivers the change to `waitlist-promoter`. `web` takes no part in the waitlist. The path pattern filter keeps changes to documents outside `registrations` from arriving.
 
-> **S6:** the trigger screen and the ticket issued to the waiting person
+> **Optional:** the trigger screen and the ticket issued to the waiting person
 
 **If stuck.** If no seat is given, look for a 403 in `waitlist-promoter`'s logs. The permission from item 1 is missing. Or `./lab skip 11`.
 
@@ -568,7 +570,7 @@ Then the experiment. New event `promo`: seats 1, waitlist 1.
 
 **Why.** A job ends when its work is done. It doesn't wait for requests, so it is a job and not a service. The real deadline release returns a seat only after the confirmation reminder email has gone out. In the lab, email is off, so `--force-release` ran just the deadline release at once. Eventarc delivered the Firestore document the job changed, and the seat went to the waiting person. Scheduled work and an event worked one after the other.
 
-> **S7:** the job's execution history, the ticket of the waiting person who got the released seat
+> **Optional:** the job's execution history, the ticket of the waiting person who got the released seat
 
 **If stuck.** If the Scheduler run shows `PERMISSION_DENIED`, check the permission in item 3. If you can't find the timezone, search for `South Korea`. Or `./lab skip 12`.
 
@@ -679,7 +681,7 @@ What it creates: the custom role `webScaler` (read and update the service, those
 
 **Why.** GitHub gives each run a short-lived token. It contains the repository ID and the branch. Google Cloud accepts only tokens that match the condition (your repository ID, `main`) and exchanges them for `tickets-deployer`'s access. A repository name can be deleted and created again, but an ID can't, so the ID is used. No key is stored anywhere.
 
-> **S8:** the successful Sign-in test run
+> **Submit 3:** no screenshot. Step 15 in `./lab check --report` is the evidence; answer the question only.
 
 **If stuck.**
 
@@ -734,7 +736,7 @@ git revert --no-edit HEAD && git push
 
 **Why.** Code that fails the tests doesn't even get an image.
 
-> **S9:** the failed run
+> **Optional:** the failed run
 
 ## Step 18. Code that fails only on Cloud Run (experiment, 20 min)
 
@@ -753,7 +755,7 @@ git add web && git commit -m "Break on Cloud Run" && git push
 
 **Where to look.** The `deploy` steps in **Actions**, and `web`'s **Revisions** tab.
 
-**Check.** **Smoke test web's new revision** fails and **Put everything back** runs. The new revision stays at 0%, and the site keeps working.
+**Check.** **Smoke test web's new revision** fails and **Put everything back** runs. The new revision stays at 0%, and the site keeps working. Take a screenshot of the **Revisions** tab now (**Submit 4**).
 
 Undo it, then roll back by hand in the Console.
 1. `git revert --no-edit HEAD && git push`, and wait for the deploy to finish.
@@ -763,7 +765,7 @@ Undo it, then roll back by hand in the Console.
 
 **Why.** A new revision comes up with 0% traffic and is checked at its own address first. A rollback only moves traffic to a revision that already exists, with no build, so it takes seconds.
 
-> **S10:** the run where Put everything back ran, the traffic management screen
+> **Submit 4 screenshot:** the **Revisions** tab before you revert (the broken revision at 0%, the previous one at 100%)
 
 **If stuck.** If `lint` or `test` failed, check the indentation of the two lines you pasted.
 
@@ -791,7 +793,7 @@ gcloud run services update-traffic web --region asia-northeast3 --to-latest --re
 ```
 </details>
 
-> **S11:** the Revisions tab with the failed revision
+> **Optional:** the **Revisions** tab with the failed revision
 
 ---
 
@@ -817,7 +819,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "https://storage.googleapis.com/PROJECT
 
 **Why.** The 404 comes from ingress **Internal**. Requests from the internet don't reach the service. The 403 is because the bucket is private. A QR can be seen only through `web`.
 
-> **S12:** the two outputs
+> **Optional:** the two outputs
 
 ## Step 21. Follow a request in the logs (experiment, 15 min)
 
@@ -831,7 +833,7 @@ Then, in `web` → **Observability → Metrics**, look at **Request count** and 
 
 **Why.** With many parts, you need records to find a cause. Every service logs the same code, so one search connects them.
 
-> **S13:** the Logs Explorer result
+> **Optional:** the Logs Explorer result
 
 ## Step 22. Cold start (experiment, 25 min, including 16 min of waiting)
 
@@ -887,7 +889,7 @@ locust -f loadtest/locustfile.py --headless --host "$URL" --event-id rush-a --bu
 
 **Why.** Cloud Run adds instances based on concurrent requests per instance and CPU. Each signup updates one document, the event's seat counter, in a transaction. Updates to the same document at the same time are handled one after another, so the seats are exact, but signups per second have a limit. That limit is the value you measured.
 
-> **S14:** the instance graph, the queue graph, the Locust result
+> **Submit 5 screenshot:** `web`'s **Container instance count** graph, the Locust result (the `Signups:` line and the response time table)
 
 ## Step 24. Concurrency 2 (experiment, 15 min)
 
@@ -907,7 +909,7 @@ locust -f loadtest/locustfile.py --headless --host "$URL" --event-id rush-a --bu
 
 **Why.** If each instance takes fewer requests, the same load needs more instances. Concurrency is a choice between cost and response time.
 
-> **S15:** the instance graph at concurrency 2
+> **Optional:** the instance graph at concurrency 2
 
 ## Step 25. Turn on pre-warming (experiment, 20 min)
 
@@ -923,7 +925,7 @@ locust -f loadtest/locustfile.py --headless --host "$URL" --event-id rush-a --bu
 
 **Why.** When you know the opening time, you can start instances ahead of time. The wait disappears, but you pay even while there are no requests.
 
-> **S16:** graphs to compare with step 23, the Locust result
+> **Submit 6 screenshot (1 of 2):** `web`'s **Container instance count** graph, showing the 3 instances running before the opening
 
 ---
 
@@ -945,7 +947,7 @@ The single line `./lab pause` also does 3 and 4.
 
 **Why.** With no requests, services scale to 0 and cost nothing. The job runs every 5 minutes, 288 times a day, so you pause it. Don't delete the project. In the next session (Terraform), you bring what you built by hand into code.
 
-> **S17:** the billing report
+> **Submit 6 screenshot (2 of 2):** the billing report (filtered to the project, grouped by service)
 
 ## Step 27. Submission and review interview
 
@@ -955,9 +957,42 @@ Submit the items below in the announced form, and book a 10-minute review interv
 
 # Submission
 
-1. `~/lab-report.txt` (`./lab check --report`)
-2. Screenshots S1–S17
-3. Measurement table
+Upload these to the survey announced in step 27. **Required** parts are graded; **optional** parts are not.
+
+## Required 1. Six core concepts
+
+Each concept has one question and, except concept 3, a screenshot. Take the screenshots at the **Submit 1** to **Submit 6** cues in the steps. Three to five sentences per answer is enough.
+
+**Points:** 3 per concept. 1 for the screenshot, 2 for the answer (1 for a right answer, 2 if you also give the reason, based on your own screenshot or measurement).
+
+**1. Service accounts and IAM (step 8)**
+- Screenshot: the `403` in `ticket-worker`'s logs (before the fix), the issued ticket (after the fix)
+- Question: which setting let the request in, and which setting refused it with 403? Which account, with which role, let it through?
+
+**2. Pub/Sub and asynchronous work (step 10)**
+- Screenshot: the `500` logs repeating at growing intervals, the message waiting in `dead-letter`
+- Question: while the worker was failing, what did people signing up go through, and what didn't they? Where did the message end up, and why there?
+
+**3. Keyless deploys (step 15)**
+- Screenshot: none. Step 15 in `./lab check --report` is the evidence.
+- Question: what stops someone else's repository from deploying to your project? Why don't you need to store a key in GitHub?
+
+**4. Revisions and safe deploys (step 18)**
+- Screenshot: `web`'s **Revisions** tab before you revert (the broken revision at 0%, the previous one at 100%)
+- Question: why didn't the broken version reach users? Why does a rollback take only seconds?
+
+**5. Autoscaling and concurrency (step 23)**
+- Screenshot: `web`'s **Container instance count** graph, the Locust result (the `Signups:` line and the response time table)
+- Question: how many instances did it grow to, and why? Why did signups per second stop at your value even with more instances?
+
+**6. Cold start, pre-warming and cost (steps 22, 25, 26)**
+- Two screenshots: step 25's **Container instance count** graph (the 3 instances before the opening), step 26's billing report
+- Question: why was the first request slow in step 22? How does pre-warming prevent it, and what does it cost? Name one case where pre-warming isn't needed.
+
+## Required 2. Also hand in
+
+1. `~/lab-report.txt` (`./lab check --report` in step 26)
+2. Measurement table
 
    | | Step 23 (pre-warming off) | Step 25 (pre-warming on) |
    |---|---|---|
@@ -969,26 +1004,27 @@ Submit the items below in the announced form, and book a 10-minute review interv
 
    Cold start, first request / later requests: ____ / ____. Maximum instances at concurrency 2: ____.
 
-4. Quiz
-5. One sentence: **What was this lab about?**
-6. Feedback survey (confidence per concept from 1 to 5, the most confusing step)
+3. One sentence: **What was this lab about?**
+4. Feedback survey (confidence per concept from 1 to 5, the most confusing step)
 
-# Quiz
+## Optional
 
-2 points each. 1 point for a right answer, 2 points if you also give the reason, based on your own measurements or screens.
+Not graded. Do every step; answer these if you like, with the step's **Optional** screenshot.
 
-1. Step 7: the signup got a reply, so why was there no ticket? Where was the message?
-2. Step 8: the request reached `ticket-worker`, so why was it a 403? Which setting let the request in, and which permission let it through once it was signed?
-3. Step 9: which check in `ticket_worker/main.py` stopped the second ticket?
-4. Step 10: while the worker was failing, what did people signing up go through, and what didn't they? Where did the message end up?
-5. Step 11: who gave the seat to the waiting person, and what started it? Why isn't it `web`'s job?
-6. Why is `housekeeping` a job and not a service?
-7. Pick one service account in `./lab iam`, and write why each of its permissions is needed.
-8. Step 15: what stops someone else's repository from deploying to your project?
-9. Step 16: why were the events and signups still there after the new revision?
-10. Steps 18 and 19: why didn't the broken versions reach users? Why is rollback fast?
-11. Step 23: why didn't the issued tickets exceed the seats (`register` in `shared/gcp.py`), and why did signups per second stop at your value?
-12. Compare the instance counts in steps 23, 24 and 25, and explain the differences. Name one case where pre-warming isn't needed.
+| Step | Concept | Question |
+|---|---|---|
+| 3 | Least privilege | Pick one account in `./lab iam` and write why each of its permissions is needed |
+| 5 | Secret Manager | Why didn't `web` start at first? Why was access given on one secret, not the whole project? |
+| 7 | Pull subscription | The signup got a reply, so why was there no ticket? Where was the message? |
+| 9 | Idempotency | Why is there still one ticket when the same message arrives twice? |
+| 11 | Eventarc | Who gave the seat to the waiting person, and what started it? |
+| 12 | Job and Cloud Scheduler | Why is `housekeeping` a job and not a service? |
+| 16 | Stateless servers | Why were the events and signups still there after the new revision? |
+| 17 | CI checks | Where did the code that failed its tests stop? |
+| 19 | Startup probe | Why didn't the revision that couldn't start get traffic? |
+| 20 | Ingress and a private bucket | Which setting caused the 404, and which the 403? |
+| 21 | Logs | Which services' logs did one ticket code bring up? |
+| 24 | Concurrency | With half the visitors, why were there more instances than in step 23? |
 
 # Going further (optional, goals only)
 
