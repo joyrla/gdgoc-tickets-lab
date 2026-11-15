@@ -1,0 +1,231 @@
+#!/usr/bin/env bash
+# The lab's setup and teardown, run from Cloud Shell. docs/lab.ko.md says when to use each.
+#
+#   ./lab up PROJECT_ID   check the project, sign in to GitHub, create your repository,
+#                         create everything in Google Cloud, and deploy the app
+#   ./lab check           report whether everything is in place
+#   ./lab code            print your latest sign-in code from the logs
+#   ./lab down            delete what the lab created
+set -euo pipefail
+cd "$(dirname "$0")"
+
+# Where scripts/setup-cloudshell.sh installs the tools
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
+
+TFVARS=infra/terraform.tfvars
+PLAN=lab.tfplan
+
+die() {
+  echo "$*" >&2
+  exit 1
+}
+
+tfvar() { sed -n "s/^$1 *= *\"\(.*\)\"/\1/p" "$TFVARS"; }
+
+load_settings() {
+  [ -f "$TFVARS" ] || die "No $TFVARS yet. Start with: ./lab up PROJECT_ID"
+  PROJECT=$(tfvar project_id)
+  REGION=$(tfvar region)
+  REGION=${REGION:-asia-northeast3}
+  # Terraform signs in with Application Default Credentials; without them, borrow
+  # a one-hour token from the gcloud login
+  if ! gcloud auth application-default print-access-token > /dev/null 2>&1; then
+    GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)
+    export GOOGLE_OAUTH_ACCESS_TOKEN
+  fi
+}
+
+# The lab's repository has every connection in place. Your copy starts with one taken out,
+# for you to make in the Console (step 4 of docs/lab.ko.md), and Terraform leaves it to you
+remove_connection() {
+  python3 - infra/events.tf << 'PY'
+import re
+import sys
+
+path = sys.argv[1]
+text = open(path).read()
+head, tail = text.split('resource "google_pubsub_subscription" "ticket_worker" {', 1)
+tail, removed = re.subn(
+    r'\n  push_config \{\n    push_endpoint = google_cloud_run_v2_service\.svc\["ticket-worker"\]\.uri\n.*?\n  \}\n',
+    "\n  lifecycle {\n    ignore_changes = [push_config]\n  }\n",
+    tail,
+    count=1,
+    flags=re.S,
+)
+if removed:
+    open(path, "w").write(head + 'resource "google_pubsub_subscription" "ticket_worker" {' + tail)
+PY
+}
+
+prepare() {
+  local project=$1 account billing owner origin
+
+  command -v terraform > /dev/null && command -v locust > /dev/null || ./scripts/setup-cloudshell.sh
+
+  account=$(gcloud config get-value account 2> /dev/null)
+  [ -n "$account" ] || die "gcloud is not signed in. Run: gcloud auth login"
+  gcloud projects describe "$project" > /dev/null 2>&1 ||
+    die "$account cannot see project $project. Check the ID in the Console's project picker."
+  billing=$(gcloud billing projects describe "$project" --format='value(billingEnabled)' 2>&1) || true
+  [ "$billing" = True ] ||
+    die "Project $project has no billing account linked. Link one under Billing in the Console, then run this again."
+  gcloud config set project "$project" --quiet
+
+  # Cloud Shell starts with no git identity, and git commit refuses to run without one
+  git config --global user.email > /dev/null || git config --global user.email "$account"
+  git config --global user.name > /dev/null || git config --global user.name "${account%@*}"
+
+  gh auth status > /dev/null 2>&1 || gh auth login --hostname github.com --git-protocol https --web --scopes workflow
+  gh auth setup-git
+
+  # Deploys run from your own repository, so the one you cloned becomes the upstream.
+  # Name the owner so yours lands in your personal account, never in an organization
+  owner=$(gh api user -q .login)
+  origin=$(git remote get-url origin 2> /dev/null || true)
+  if [[ $origin != *[/:]$owner/* ]]; then
+    [ -z "$origin" ] || git remote rename origin upstream
+    remove_connection
+    git diff --quiet infra/events.tf || git commit -q -m "Start the lab" infra/events.tf
+    if gh repo view "$owner/gdgoc-tickets" > /dev/null 2>&1; then
+      git remote add origin "https://github.com/$owner/gdgoc-tickets.git"
+      git push -u origin main
+    else
+      gh repo create "$owner/gdgoc-tickets" --private --source . --remote origin --push
+    fi
+  fi
+
+  if [ ! -f "$TFVARS" ]; then
+    {
+      echo "project_id     = \"$project\""
+      echo "github_repo_id = \"$(gh api "repos/$owner/gdgoc-tickets" -q .id)\""
+      echo "admin_emails   = [\"$account\"]"
+    } > "$TFVARS"
+  fi
+
+  ./infra/bootstrap-state.sh
+}
+
+make_plan() {
+  terraform -chdir=infra plan -input=false -no-color -out="$PLAN" > infra/lab.plan.txt 2>&1 ||
+    die "$(cat infra/lab.plan.txt)"
+}
+
+# A new project takes minutes to switch on its services, so a first apply can stop on a
+# "not ready" error, and Cloud Shell's network sometimes drops a call. These clear by
+# themselves. Anything else needs a person to read it
+RETRYABLE='not ready|retry in a few minutes|recently enabled|has not been used|SERVICE_DISABLED|cannot assign requested address|connection reset|i/o timeout|TLS handshake timeout'
+
+create_resources() {
+  local attempt log=infra/lab.apply.txt
+  echo "Creating everything in Google Cloud. This takes about 10 minutes."
+  for attempt in 1 2 3 4; do
+    make_plan
+    if terraform -chdir=infra apply -input=false -no-color "$PLAN" > "$log" 2>&1; then
+      rm -f "infra/$PLAN"
+      return
+    fi
+    if ! grep -qE "$RETRYABLE" "$log"; then
+      tail -20 "$log" >&2
+      die "Setup stopped on the error above."
+    fi
+    [ "$attempt" -lt 4 ] || die "Setup kept failing. Wait a few minutes, then run ./lab up again."
+    echo "Google Cloud is not ready yet. Trying again in a minute ($attempt of 3)."
+    sleep 60
+  done
+}
+
+first_deploy() {
+  local run
+  gh variable list --json name -q '.[].name' | grep -qx DEPLOY_ENABLED && return
+  ./infra/connect-github.sh > /dev/null
+  gh workflow run ci.yml --ref main
+  sleep 8
+  run=$(gh run list --workflow ci.yml --event workflow_dispatch --limit 1 --json databaseId -q '.[0].databaseId')
+  echo "Deploying through GitHub Actions. This takes several minutes."
+  gh run watch "$run" --exit-status --interval 20 > /dev/null ||
+    die "The deploy failed. See: gh run view $run --log-failed. To deploy again: gh workflow run ci.yml --ref main"
+}
+
+up() {
+  [ $# -eq 1 ] || die "Usage: ./lab up PROJECT_ID"
+  [ -d .git ] || die "Start from a git clone of the lab's repository."
+  prepare "$1"
+  load_settings
+  create_resources
+  first_deploy
+  echo
+  echo "Ready. Your site: $(terraform -chdir=infra output -raw web_url)"
+  echo "Run source ~/.bashrc so this terminal finds the tools."
+}
+
+check() {
+  local url title endpoint service failed=0
+  load_settings
+  pass() { echo "ok    $1"; }
+  fail() {
+    echo "NOT   $1"
+    failed=1
+  }
+
+  echo "project: $PROJECT"
+  for service in web ticket-worker waitlist-promoter; do
+    if [ "$(gcloud run services describe "$service" --region "$REGION" --format='value(status.conditions[0].status)' 2> /dev/null)" = True ]; then
+      pass "Cloud Run service $service is ready"
+    else
+      fail "Cloud Run service $service is not ready"
+    fi
+  done
+  if gcloud run jobs describe housekeeping --region "$REGION" > /dev/null 2>&1; then
+    pass "Cloud Run job housekeeping exists"
+  else
+    fail "Cloud Run job housekeeping is missing"
+  fi
+
+  url=$(terraform -chdir=infra output -raw web_url 2> /dev/null) || url=""
+  title=$(curl -s -m 30 "$url/" | grep -o '<title>[^<]*' || true)
+  if [[ $title == *"Cloud Ticketing"* ]]; then
+    pass "the site answers: $url"
+  else
+    fail "the site is not showing the app yet: ${url:-no address}"
+  fi
+
+  endpoint=$(gcloud pubsub subscriptions describe ticket-worker --format='value(pushConfig.pushEndpoint)' 2> /dev/null || true)
+  if [ -n "$endpoint" ]; then
+    pass "Pub/Sub delivers registrations to ticket-worker"
+  else
+    fail "Pub/Sub does not deliver registrations to ticket-worker yet (step 4)"
+  fi
+  return "$failed"
+}
+
+code() {
+  load_settings
+  gcloud logging read 'resource.labels.service_name="ticket-worker" AND jsonPayload.message:"sign-in code for organizer"' \
+    --project "$PROJECT" --limit 1 --freshness 1h --format 'value(jsonPayload.message)'
+}
+
+down() {
+  local answer attempt
+  load_settings
+  read -r -p "This deletes everything the lab created in $PROJECT. Type the project ID to continue: " answer
+  [ "$answer" = "$PROJECT" ] || die "Stopped. Nothing was changed."
+  # cleanup.sh asks for "yes" before destroying, and once more if Firestore is protected
+  for attempt in 1 2 3; do
+    printf 'yes\nyes\n' | ./infra/cleanup.sh && return
+    [ "$attempt" -lt 3 ] || die "Teardown kept failing. Read the error above, then run ./lab down again."
+    echo "Teardown stopped partway. Trying the rest again in 30 seconds."
+    sleep 30
+  done
+}
+
+case "${1:-}" in
+  up)
+    shift
+    up "$@"
+    ;;
+  check | code | down) "$1" ;;
+  *)
+    sed -n 2,8p "$0" >&2
+    exit 2
+    ;;
+esac
