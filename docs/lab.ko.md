@@ -154,11 +154,17 @@
    | 이름 | 값 | 찾는 곳 |
    |---|---|---|
    | `GCP_PROJECT_ID` | `프로젝트_ID` | 콘솔 위쪽 프로젝트 메뉴 |
-   | `WIF_PROVIDER` | `projects/프로젝트_번호/locations/global/workloadIdentityPools/github/providers/gdgoc-tickets` | `프로젝트_번호`는 ☰ → **Cloud 개요 → 대시보드**의 **프로젝트 정보** |
+   | `WIF_PROVIDER` | `projects/…/providers/…` 한 줄 | 아래 명령의 출력 |
    | `DEPLOYER_SA` | `tickets-deployer@프로젝트_ID.iam.gserviceaccount.com` | ☰ → **IAM 및 관리자 → 서비스 계정** |
 
-6. 2분 기다린 뒤 **Sign-in test**를 다시 실행합니다. 이번에는 통과합니다.
-7. 다른 브랜치에서 시험합니다. 내 저장소 첫 화면 → 왼쪽 위 브랜치 메뉴(**main**) → `try-branch` 입력 → **Create branch try-branch from main**. **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**. 실패합니다. 실패한 단계의 오류를 찍습니다(**제출 1**). 그다음 브랜치 메뉴 → **View all branches** → `try-branch` 행의 휴지통 아이콘.
+   `WIF_PROVIDER`는 직접 입력하지 않고, Cloud Shell에서 아래 명령의 출력을 그대로 복사합니다. 프로젝트 번호나 공급업체 ID가 한 글자만 달라도 `invalid_target`으로 실패합니다.
+
+   ```bash
+   gcloud iam workload-identity-pools providers list --workload-identity-pool=github --location=global --format="value(name)"
+   ```
+
+6. Cloud Shell에서 `./lab check github`를 실행해, 연결과 세 변수에 틀린 곳이 없는지 확인합니다. 틀린 곳은 맞는 값과 함께 나옵니다. 2분 기다린 뒤 **Sign-in test**를 다시 실행합니다. 이번에는 통과해야 합니다. 통과하기 전에는 다음 단계로 넘어가지 않습니다(아래 **막히면**).
+7. 다른 브랜치에서 시험합니다. 내 저장소 첫 화면 → 왼쪽 위 브랜치 메뉴(**main**) → `try-branch` 입력 → **Create branch try-branch from main**. **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**. 오류 `rejected by the attribute condition`으로 실패합니다. 이 오류를 찍습니다(**제출 1**). 다른 오류이면 연결이 아직 잘못된 상태입니다. 그다음 브랜치 메뉴 → **View all branches** → `try-branch` 행의 휴지통 아이콘.
 8. 배포를 켭니다. **Variables** 탭 → **New repository variable**: `DEPLOY_ENABLED` = `true`.
 
 **할 일. 첫 배포 (풀 리퀘스트)**
@@ -202,7 +208,8 @@
 |---|---|
 | 다시 실행한 Sign-in test가 `rejected by the attribute condition` | 조건의 `저장소_ID`가 2번의 숫자와 같은지, 작은따옴표로 감쌌는지 |
 | `Permission 'iam.serviceAccounts.getAccessToken' denied` | 권한이 퍼지는 중이면 2분 뒤 다시. 계속되면 4번의 속성 값이 `저장소_ID`인지 |
-| `invalid_target` 또는 공급업체를 찾지 못함 | `WIF_PROVIDER`의 `프로젝트_번호`(ID가 아님)와 철자 |
+| `invalid_target` 또는 공급업체를 찾지 못함 | `WIF_PROVIDER`가 실제 공급업체와 다름. 5번 아래 명령의 출력으로 다시 설정 |
+| 병합 뒤 `build`가 `failed to generate Google Cloud federated token`으로 실패 | 6번이 통과하지 않은 상태. 6번을 통과시킨 뒤 그 실행 화면의 **Re-run failed jobs** |
 | `deploy` 작업이 건너뛰어짐 | `DEPLOY_ENABLED`가 정확히 `true`인지 |
 | `emulator` 작업이 `Transaction lock timeout`으로 실패 | 시험용 데이터베이스의 일시적인 지연. 실행 화면의 **Re-run failed jobs** |
 | `git`을 찾을 수 없음 | Git을 설치한 뒤 VS Code를 다시 시작 |

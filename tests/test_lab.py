@@ -734,3 +734,46 @@ def test_the_report_does_not_expect_a_paused_scheduler(lab, monkeypatch, capsys)
     with pytest.raises(SystemExit):
         lab.check(["paused"])
     assert ran == ["paused"]
+
+
+def test_a_provider_with_another_name_is_found_and_a_wrong_wif_provider_is_named(lab, monkeypatch):
+    # Two students on 2026-11-16: one named the provider differently, one typed WIF_PROVIDER by hand
+    name = "projects/123456789012/locations/global/workloadIdentityPools/github/providers/gdgoc-tickets1234-lab"
+    typed = "projects/123456789012/locations/global/workloadIdentityPools/github/providers/gdgoc-tickets"
+    variables = [{"name": "GCP_PROJECT_ID", "value": P}, {"name": "WIF_PROVIDER", "value": typed}]
+
+    def fake_gh(*args):
+        if args[:2] == ("api", "repos/student/gdgoc-tickets"):
+            return "555"
+        if args[:2] == ("variable", "list"):
+            return json.dumps(variables)
+        return None
+
+    monkeypatch.setattr(lab, "own_repo", lambda: "student/gdgoc-tickets")
+    monkeypatch.setattr(lab, "gh", fake_gh)
+    provider = {
+        "name": name,
+        "oidc": {"issuerUri": "https://token.actions.githubusercontent.com"},
+        "attributeMapping": {"attribute.repository_id": "assertion.repository_id", "attribute.ref": "assertion.ref"},
+        "attributeCondition": "assertion.repository_id == '555' && assertion.ref == 'refs/heads/main'",
+    }
+    cloud = make_cloud(
+        lab,
+        gcloud={
+            "iam workload-identity-pools describe github --location global": {"state": "ACTIVE"},
+            "iam workload-identity-pools providers list --workload-identity-pool github --location global": [provider],
+        },
+    )
+    found = problems(run(lab, lab.check_trust, cloud))
+    assert not any("no provider" in p for p in found)
+    assert f"GitHub variable WIF_PROVIDER should be {name}" in found
+    assert not any("condition should name" in p for p in found)
+
+
+def test_a_public_copy_is_not_a_problem(lab, monkeypatch):
+    info = {"id": 555, "private": False, "fork": False}
+    monkeypatch.setattr(lab, "own_repo", lambda: "student/gdgoc-tickets")
+    monkeypatch.setattr(lab, "gh", lambda *args: json.dumps(info) if args[1:2] == ("repos/student/gdgoc-tickets",)
+                        else json.dumps({"enabled": True}))  # fmt: skip
+    monkeypatch.setattr(lab, "sh", lambda cmd, **kw: "https://github.com/student/gdgoc-tickets.git")
+    assert problems(run(lab, lab.check_repo, make_cloud(lab))) == []

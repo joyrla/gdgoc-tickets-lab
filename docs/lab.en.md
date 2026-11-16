@@ -154,11 +154,17 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
    | Name | Value | Where to find it |
    |---|---|---|
    | `GCP_PROJECT_ID` | `PROJECT_ID` | The project menu at the top of the Console |
-   | `WIF_PROVIDER` | `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/gdgoc-tickets` | `PROJECT_NUMBER`: ☰ → **Cloud overview → Dashboard**, **Project info** |
+   | `WIF_PROVIDER` | one line, `projects/…/providers/…` | The output of the command below |
    | `DEPLOYER_SA` | `tickets-deployer@PROJECT_ID.iam.gserviceaccount.com` | ☰ → **IAM & Admin → Service accounts** |
 
-6. Wait two minutes, then run **Sign-in test** again. This time it passes.
-7. Try another branch. Your repository's main page → the branch menu at the top left (**main**) → type `try-branch` → **Create branch try-branch from main**. **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**. It fails. Take a screenshot of the failed step's error (**Submit 1**). Then the branch menu → **View all branches** → the trash icon on the `try-branch` row.
+   Don't type `WIF_PROVIDER`: copy the output of this command in Cloud Shell as it is. One wrong character in the project number or the provider ID fails with `invalid_target`.
+
+   ```bash
+   gcloud iam workload-identity-pools providers list --workload-identity-pool=github --location=global --format="value(name)"
+   ```
+
+6. In Cloud Shell, run `./lab check github` to check the trust and the three variables; anything wrong is shown with the right value. Wait two minutes, then run **Sign-in test** again. This time it must pass. Don't go on until it does (see **Stuck?** below).
+7. Try another branch. Your repository's main page → the branch menu at the top left (**main**) → type `try-branch` → **Create branch try-branch from main**. **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**. It fails with `rejected by the attribute condition`. Take a screenshot of that error (**Submit 1**). Any other error means the connection is still wrong. Then the branch menu → **View all branches** → the trash icon on the `try-branch` row.
 8. Turn deploys on. **Variables** tab → **New repository variable**: `DEPLOY_ENABLED` = `true`.
 
 **Do. First deploy (pull request)**
@@ -202,7 +208,8 @@ You need Git and VS Code on your computer. On a Mac, run `git --version` in Term
 |---|---|
 | The second Sign-in test fails with `rejected by the attribute condition` | The condition's `REPOSITORY_ID` must equal the number from step 2, in single quotes |
 | `Permission 'iam.serviceAccounts.getAccessToken' denied` | Still spreading: run it again in two minutes. If it stays, the attribute value in step 4 must be `REPOSITORY_ID` |
-| `invalid_target`, or the provider is not found | `WIF_PROVIDER` needs the project **number** (not the ID), spelled exactly |
+| `invalid_target`, or the provider is not found | `WIF_PROVIDER` doesn't match the real provider. Set it again from the command under step 5 |
+| After the merge, `build` fails with `failed to generate Google Cloud federated token` | Step 6 never passed. Make it pass, then **Re-run failed jobs** on that run |
 | The `deploy` job is skipped | `DEPLOY_ENABLED` must be exactly `true` |
 | The `emulator` job fails with `Transaction lock timeout` | A brief delay in the test database. **Re-run failed jobs** on the run's page |
 | `git` not found | Install Git, then restart VS Code |

@@ -1573,7 +1573,6 @@ def check_repo(c: Cloud, r: Result) -> None:
         raise NotBuilt("no copy made with Use this template yet, or this folder isn't it")
     info = json.loads(gh("api", f"repos/{repo}") or "{}")
     r.ok(f"your copy: {repo} (ID {info.get('id')}), made from {TEMPLATE}")
-    r.expect(info.get("private") is True, "private", "the repository is public; make it private (Settings → General)")
     r.expect(not info.get("fork"), "a copy, not a fork", "this is a fork; use the template (Use this template) instead")
     actions = json.loads(gh("api", f"repos/{repo}/actions/permissions") or "{}")
     r.expect(actions.get("enabled") is True, "Actions on", "Actions is off: Settings → Actions → General")
@@ -1601,7 +1600,12 @@ def check_trust(c: Cloud, r: Result) -> None:
         "--location",
         "global",
     )
-    if not r.expect(bool(provider), "provider gdgoc-tickets", "no provider gdgoc-tickets in the pool github"):
+    if not provider:
+        # A provider named something else is still the student's, as long as it is the only one
+        found = c.gcloud("iam", "workload-identity-pools", "providers", "list", "--workload-identity-pool", "github",
+                         "--location", "global") or []  # fmt: skip
+        provider = found[0] if len(found) == 1 else None
+    if not r.expect(bool(provider), "provider in the pool github", "no provider in the pool github"):
         return
     repo = own_repo()
     repo_id = (gh("api", f"repos/{repo}", "-q", ".id") if repo else None) or ""
@@ -1648,7 +1652,7 @@ def check_trust(c: Cloud, r: Result) -> None:
         }
         for name, value in (
             ("GCP_PROJECT_ID", c.project),
-            ("WIF_PROVIDER", c.provider),
+            ("WIF_PROVIDER", provider.get("name") or c.provider),
             ("DEPLOYER_SA", c.sa("deployer")),
         ):
             r.expect(
