@@ -1818,7 +1818,8 @@ def check(args: list) -> None:
             die(f"No check {arg}. The checks: {', '.join(CHECKS)}")
         if name not in names:
             names.append(name)
-    names = names or list(CHECKS)
+    # Pausing is not a lab task, so a full check or report leaves it out (./lab check paused still runs it)
+    names = names or [n for n in CHECKS if n != "paused"]
     out = []
     if report:
         out.append(f"Cloud Ticketing lab report, {datetime.now().isoformat(timespec='minutes')}")

@@ -676,7 +676,7 @@ def test_every_skip_names_parts_terraform_knows(lab):
         assert name in parts and set(parts) <= set(lab.PARTS)
 
 
-def test_the_report_lists_every_step_with_a_check(lab, monkeypatch, tmp_path, capsys):
+def test_the_report_lists_every_check_but_the_pause(lab, monkeypatch, tmp_path, capsys):
     lab.write_tfvars(
         {"project_id": P, "github_repo_id": "0", "admin_emails": ["a@example.com"], "lab_parts": ["start"]}
     )
@@ -687,7 +687,9 @@ def test_the_report_lists_every_step_with_a_check(lab, monkeypatch, tmp_path, ca
         lab.check(["--report"])
     report = (tmp_path / "report.txt").read_text()
     for name in lab.CHECKS:
-        assert re.search(rf"^{name} ", report, re.M), name
+        if name != "paused":  # pausing is not a lab task
+            assert re.search(rf"^{name} ", report, re.M), name
+    assert not re.search(r"^paused ", report, re.M)
     assert set(lab.STEP_CHECKS.values()) <= set(lab.CHECKS)
     assert json.dumps(P)[1:-1] in report
 
@@ -719,3 +721,16 @@ def test_down_stops_unless_the_project_id_is_typed(lab, monkeypatch):
     with pytest.raises(SystemExit):
         lab.down()
     assert lab.TFVARS.exists()
+
+
+def test_the_report_does_not_expect_a_paused_scheduler(lab, monkeypatch, capsys):
+    lab.write_tfvars({"project_id": P, "admin_emails": ["a@gmail.com"], "lab_parts": ["start"]})
+    ran = []
+    monkeypatch.setattr(lab, "run_check", lambda cloud, name: ran.append(name) or ("ok", []))
+    with pytest.raises(SystemExit):
+        lab.check([])
+    assert "paused" not in ran and "deploys" in ran
+    ran.clear()
+    with pytest.raises(SystemExit):
+        lab.check(["paused"])
+    assert ran == ["paused"]

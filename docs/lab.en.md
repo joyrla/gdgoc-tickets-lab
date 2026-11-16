@@ -427,27 +427,6 @@ Now fix it.
 
 > **Submit 6 screenshot:** `web`'s instance count graph, the Locust result (`Signups:` line and response-time table)
 
-## Task 10. Pause and report
-
-**Do.**
-1. ☰ → **Billing → Reports**. Filter by your project and group by service. Costs appear about a day late.
-2. (Optional) A preview of the next session: see how far your Console changes are from the code.
-
-   ```bash
-   ./lab drift
-   ```
-
-3. Pause the lab.
-   - ☰ → **Cloud Scheduler** → tick the `housekeeping` row → **Pause**.
-   - Your repository → **Settings → Secrets and variables → Actions → Variables** → the pencil icon of `DEPLOY_ENABLED` → value `false` → **Update variable**.
-4. Run the checks and make the report for submission.
-
-   ```bash
-   ./lab check --report
-   ```
-
-**Why.** With no requests, the services scale to zero and cost nothing. The job runs every 5 minutes, 288 times a day, so it is paused. With deploys off, code pushed by mistake is not deployed. The differences `./lab drift` shows are where the next session (Terraform) starts: Console changes are not in the code, and applying the code again (`./lab up`) removes them.
-
 ---
 
 # Submission
@@ -486,7 +465,7 @@ One screenshot and one question per concept. Three to five sentences per answer 
 
 ## Required 2. Also hand in
 
-1. `~/lab-report.txt` (from `./lab check --report` in Task 10)
+1. `~/lab-report.txt`. After the tasks, run `./lab check --report` in Cloud Shell to make it.
 2. The measurement table
 
    | | `rush-a` (concurrency 40) | (Optional) `rush-c` (concurrency 2) |
@@ -511,7 +490,6 @@ One screenshot and one question per concept. Three to five sentences per answer 
 | 5 | Idempotency | Why is there one ticket and one email even if the same message arrives twice? |
 | 6 | Eventarc | Who gave the seat to the waiting person, and what started it? Of the four emails, why did `web` send some and the worker the others? |
 | 8 | Jobs and Cloud Scheduler | Why is `housekeeping` a job and not a service? |
-| 10 | Drift | Where did the differences in `./lab drift` come from? |
 
 # Further (optional, goals only)
 
@@ -550,7 +528,6 @@ All run from `~/gdgoc-tickets` in Cloud Shell.
 | `./lab load EVENT_ID [--users N] [--minutes M]` | Load test |
 | `./lab coldstart` | First-request and later-request times |
 | `./lab check [NAME]`, `./lab check --report` | Checks and the report |
-| `./lab drift` | Differences between your Console changes and the code |
 | `./lab code` | An organizer's sign-in code (while email is off) |
 | `./lab down` | Delete everything the lab made |
 
