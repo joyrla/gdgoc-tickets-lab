@@ -1652,7 +1652,23 @@ def check_trust(c: Cloud, r: Result) -> None:
                 variables.get(name) == value, f"GitHub variable {name}", f"GitHub variable {name} should be {value}"
             )
         runs = json.loads(
-            gh("run", "list", "--repo", repo, "--workflow", "sign-in-test.yml", "--limit", "1", "--json", "conclusion")
+            # main only: a run on another branch is meant to fail (the trust rule), and must not hide this one
+            gh(
+                "run",
+                "list",
+                "--repo",
+                repo,
+                "--workflow",
+                "sign-in-test.yml",
+                "--branch",
+                "main",
+                "--status",
+                "success",
+                "--limit",
+                "1",
+                "--json",
+                "conclusion",
+            )
             or "[]"
         )
         r.expect(
@@ -1672,18 +1688,17 @@ def check_deploys(c: Cloud, r: Result) -> None:
         if repo
         else {}
     )
-    if variables.get("DEPLOY_ENABLED") != "true":
-        raise NotBuilt("deploys are off (DEPLOY_ENABLED is not true)")
-    r.ok("DEPLOY_ENABLED is true")
     web = c.run_api("services/web")
-    if not r.expect(bool(web), "web exists", "no web service (step 5)"):
-        return
-    image = (web.get("template", {}).get("containers") or [{}])[0].get("image", "")
+    image = ((web or {}).get("template", {}).get("containers") or [{}])[0].get("image", "")
     tag = image.rsplit(":", 1)[-1]
+    deployed = bool(re.fullmatch(r"[0-9a-f]{40}", tag))
+    enabled = variables.get("DEPLOY_ENABLED") == "true"
+    if not deployed and not enabled:
+        raise NotBuilt("deploys are off (DEPLOY_ENABLED is not true)")
+    # After ./lab pause, DEPLOY_ENABLED is false on purpose; what GitHub deployed still counts
+    r.ok("DEPLOY_ENABLED is true" if enabled else "deploys are paused now (DEPLOY_ENABLED=false)")
     r.expect(
-        bool(re.fullmatch(r"[0-9a-f]{40}", tag)),
-        f"web runs an image GitHub Actions built ({tag[:7]})",
-        "web still runs the lab image; push to main",
+        deployed, f"web runs an image GitHub Actions built ({tag[:7]})", "web still runs the lab image; push to main"
     )
 
 
@@ -1695,6 +1710,8 @@ def check_paused(c: Cloud, r: Result) -> None:
     if running:
         raise NotBuilt(f"still running: {', '.join(running)}")
     r.ok("the Scheduler is paused")
+    warm = ((c.run_api("services/web") or {}).get("scaling") or {}).get("minInstanceCount", 0)
+    r.expect(not warm, "web keeps no idle instances", f"web still keeps {warm} instances warm: ./lab pause")
 
 
 def check_github(c: Cloud, r: Result) -> None:
@@ -1867,9 +1884,13 @@ def skip_repo() -> None:
         die(
             f"{repo} already exists and was not made from {TEMPLATE}. Pick another name: LAB_COPY_NAME=NAME ./lab skip 14"
         )
+    for _ in range(20):  # GitHub copies a template in the background; an early clone is empty
+        if gh("api", f"repos/{repo}/commits", "-q", ".[0].sha"):
+            break
+        time.sleep(3)
     target = Path.home() / COPY_NAME
     if not target.exists():
-        for _ in range(10):  # GitHub copies a template in the background
+        for _ in range(10):
             if subprocess.run(["gh", "repo", "clone", repo, str(target)], capture_output=True).returncode == 0:
                 break
             time.sleep(3)
@@ -2009,6 +2030,28 @@ def pause() -> None:
             ]
         )
         print(f"The Scheduler job {name} is paused: housekeeping stops running every 5 minutes.")
+    # Pre-warm may have left web at 3 instances; with the job paused nothing would lower it again,
+    # and idle minimum instances are billed. The service-level minimum makes no new revision.
+    web = cloud.run_api("services/web") or {}
+    if (web.get("scaling") or {}).get("minInstanceCount", 0):
+        sh(
+            [
+                "gcloud",
+                "run",
+                "services",
+                "update",
+                "web",
+                "--min",
+                "0",
+                "--region",
+                cloud.region,
+                "--project",
+                cloud.project,
+                "--quiet",
+            ],
+            capture=True,
+        )
+        print("web's minimum instances are back to 0 (pre-warm had left some running).")
     repo = own_repo()
     if repo:
         sh(["gh", "variable", "set", "DEPLOY_ENABLED", "--repo", repo, "--body", "false"], capture=True)
