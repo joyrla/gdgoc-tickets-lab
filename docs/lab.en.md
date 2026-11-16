@@ -46,13 +46,13 @@ cd ~/gdgoc-tickets
 - **Pub/Sub, Eventarc, Cloud Scheduler and Logging are not in the default ☰ list.** Once, open ☰ → **View all products** and click the ☆ on those four rows; they then appear under **Favorite products** at the top of ☰.
 - Bold text is a button or field in the Console, on GitHub or on the site. The site is in Korean; its labels are given in Korean with the English meaning. If your Console is in Korean, use the Korean sheet (`lab.ko.md`).
 - On every Console screen, first check that the project menu at the top shows your lab project.
-- Names with underscores, like `PROJECT_ID` and `GITHUB_ID`, are your own values. `you@gmail.com` is your Gmail address.
+- Copy and run the commands as they are. The only value you change is `you@gmail.com` (your Gmail address).
 
 **Each mission** has **Where** (which of the site, the Console, Cloud Shell, GitHub or your inbox you use), **Do**, **Predict**, **Email**, **Where to look**, **Check** and **Why**. Write the prediction in one line before you start. Wrong predictions are fine.
 
 **Submission cues:** **Submit 1** to **Submit 6** are required screenshots; **Optional** ones are up to you. They are collected in [Submission](#submission) at the end.
 
-**When stuck:** after 20 minutes, post the mission number, the `./lab check` output and the error screen in the help thread. If something is broken, running `./lab up PROJECT_ID` again puts every setting back to the code's version.
+**When stuck:** after 20 minutes, post the mission number, the `./lab check` output and the error screen in the help thread. If something is broken, running `./lab up` again puts every setting back to the code's version.
 
 ## If you know AWS
 
@@ -140,12 +140,14 @@ These are the eight moments you learn the most from. The other missions (0 setup
 
    ```bash
    gh auth login --web --scopes workflow
-   gh repo clone GITHUB_ID/gdgoc-tickets
+   gh repo clone gdgoc-tickets
    cd gdgoc-tickets
-   ./lab up PROJECT_ID
+   ./lab up
    ```
 
-   At `gh auth login`, press Enter and type the code on screen at [github.com/login/device](https://github.com/login/device).
+   - `gh auth login`: press Enter at both questions and at `Press Enter`. Type the 8-character code on screen at [github.com/login/device](https://github.com/login/device). Ignore the clipboard warning (`Failed to copy`).
+   - `gh repo clone gdgoc-tickets`: gets `gdgoc-tickets` of the account you signed in with, which is the repository you made in step 5.
+   - `./lab up`: shows the name and ID of the project Cloud Shell is using (the yellow text in the prompt) and asks. If it is the project from step 1, type `y`; if not, press Enter, pick the project at the top of the Console and reopen Cloud Shell.
 
 What `./lab up` does: installs tools, turns on APIs, builds four images, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes 20 to 25 minutes. Do Mission 1 while you wait.
 
@@ -157,12 +159,12 @@ What `./lab up` does: installs tools, turns on APIs, builds four images, then us
 
 | Message | Fix |
 |---|---|
-| `cannot see project` | A typo in the project ID. It differs from the project name |
+| `No project is selected`, or another project's name | Pick the lab project at the top of the Console and reopen Cloud Shell |
 | `no billing account linked` | Step 3 |
 | No **Use this template** button | Check that you accepted the invitation to the lab repository |
-| `gh repo clone` can't find the repository | Step 5: the name must be `gdgoc-tickets` and the owner you |
+| `Could not resolve to a Repository` | Step 5 not done yet, or the name is not `gdgoc-tickets`, or the owner is another account |
 | `Google Cloud is not ready yet` | Common in a new project. The command retries by itself a minute later |
-| Cloud Shell disconnected | Reopen it and run `cd ~/gdgoc-tickets && ./lab up PROJECT_ID` |
+| Cloud Shell disconnected | Reopen it and run `cd ~/gdgoc-tickets && ./lab up` |
 
 ## Mission 1. Look around (15 min, while `./lab up` runs)
 
@@ -211,7 +213,7 @@ You connect two outside services to what was built: GitHub (push code, get a dep
    ./lab github
    ```
 
-2. Your repository (`github.com/GITHUB_ID/gdgoc-tickets`) → **Settings** → left **Secrets and variables → Actions** → **Variables** tab → **New repository variable**. Add `GCP_PROJECT_ID`, `WIF_PROVIDER` and `DEPLOYER_SA` one at a time, copying the values from the `./lab github` output. They are not secret, so they go in the **Variables** tab, not **Secrets**.
+2. Your repository (the address in the `./lab github` output) → **Settings** → left **Secrets and variables → Actions** → **Variables** tab → **New repository variable**. Add `GCP_PROJECT_ID`, `WIF_PROVIDER` and `DEPLOYER_SA` one at a time, copying the values from the `./lab github` output. They are not secret, so they go in the **Variables** tab, not **Secrets**.
 3. Wait two minutes, then **Actions** → left **Sign-in test** → **Run workflow** → **Run workflow**.
 
 **Predict.** You stored no key at all. Will it sign in?
@@ -661,7 +663,7 @@ All run from `~/gdgoc-tickets`.
 
 | Command | What it does |
 |---|---|
-| `./lab up PROJECT_ID` | Build everything. Run it again to put the code's settings back |
+| `./lab up` | Build everything. Run it again to put the code's settings back |
 | `./lab iam` | Every account's permissions and why |
 | `./lab github` | Build the keyless sign-in; print the three variables to add on GitHub |
 | `./lab mail on`, `./lab mail off` | Turn real email on or off |

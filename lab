@@ -2,7 +2,8 @@
 """Shortcuts and checks for the Cloud Ticketing lab, run in Cloud Shell from the lab's folder.
 docs/lab.ko.md says when to use each.
 
-  ./lab up PROJECT_ID          build the whole lab; run it again to put back the code's settings
+  ./lab up [PROJECT_ID]        build the whole lab; run it again to put back the code's settings
+                               (no ID: the project Cloud Shell shows, after you confirm it)
   ./lab iam                    who may do what, by service account
   ./lab event ID [--opens-in MINUTES] [--seats N] [--waitlist N] [--title TEXT]   create a published event
   ./lab load EVENT_ID [--users N] [--minutes M]   load test: visitors rush the event's opening
@@ -622,6 +623,26 @@ def billing_problem(cloud: Cloud) -> str:
             f"Project {cloud.project} has no billing account linked. Link one: ☰ → Billing → Link a billing account."
         )
     return ""
+
+
+def chosen_project() -> str:
+    """./lab up with no ID: the lab's project once it is set up, else the project Cloud Shell
+    shows (gcloud's current project), after the student confirms it by name."""
+    built = read_tfvars().get("project_id")
+    if built:
+        return built
+    project = sh(["gcloud", "config", "get-value", "project"], capture=True, check=False).strip()
+    if not project:
+        die("No project is selected. In the Console, pick your lab project at the top, then reopen Cloud Shell.")
+    name = sh(["gcloud", "projects", "describe", project, "--format=value(name)"], capture=True, check=False).strip()
+    print(f'Cloud Shell is using the project "{name or project}" (ID {project}).')
+    try:
+        answer = input("Build the lab in this project? Type y and press Enter: ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() not in ("y", "yes"):
+        die("Nothing built. Pick the lab project at the top of the Console, then run ./lab up again.")
+    return project
 
 
 def prepare(project: str) -> tuple[Cloud, dict]:
@@ -2214,8 +2235,8 @@ def main(argv: list) -> None:
         link_settings()
     if command == "start" and len(args) == 1:
         start(args[0])
-    elif command == "up" and len(args) == 1:
-        up(args[0])
+    elif command == "up" and len(args) <= 1:
+        up(args[0] if args else chosen_project())
     elif command == "github" and not args:
         github()
     elif command == "mail" and args in (["on"], ["off"]):

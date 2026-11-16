@@ -47,13 +47,13 @@ cd ~/gdgoc-tickets
 - 굵은 글씨는 콘솔, GitHub, 사이트의 버튼과 칸 이름입니다. 콘솔이 영어면 영어판 문서(`lab.en.md`)를 봅니다.
 - 콘솔의 모든 화면에서 위쪽 프로젝트 메뉴에 실습 프로젝트가 선택되어 있는지 먼저 봅니다.
 - 콘솔의 **작업**(Jobs)은 이 문서의 **잡**입니다.
-- `프로젝트_ID`, `GitHub_ID`처럼 밑줄 이름은 자신의 값으로 바꿉니다. `you@gmail.com`은 자신의 Gmail입니다.
+- 명령은 그대로 복사해 실행합니다. 바꿔 쓸 값은 `you@gmail.com`(자신의 Gmail) 하나입니다.
 
 **미션의 구성.** 미션마다 **어디서**(사이트, 콘솔, Cloud Shell, GitHub, 메일함 중 어디를 여는지), **할 일**, **예측**, **오는 메일**, **볼 곳**, **확인**, **이유**가 있습니다. 예측은 하기 전에 한 줄로 적어 둡니다. 틀려도 됩니다.
 
 **제출 표시.** **제출 1**~**제출 6**은 반드시 낼 스크린샷, **선택 제출**은 원하면 내는 스크린샷입니다. 맨 아래 [제출](#제출)에 모아 두었습니다.
 
-**막혔을 때.** 20분 넘게 막히면 도움 스레드에 미션 번호, `./lab check` 출력, 오류 화면을 올립니다. 무엇이든 망가졌다면 `./lab up 프로젝트_ID`를 다시 실행하면 코드의 설정으로 돌아갑니다.
+**막혔을 때.** 20분 넘게 막히면 도움 스레드에 미션 번호, `./lab check` 출력, 오류 화면을 올립니다. 무엇이든 망가졌다면 `./lab up`을 다시 실행하면 코드의 설정으로 돌아갑니다.
 
 ## AWS를 써 봤다면
 
@@ -141,12 +141,14 @@ cd ~/gdgoc-tickets
 
    ```bash
    gh auth login --web --scopes workflow
-   gh repo clone GitHub_ID/gdgoc-tickets
+   gh repo clone gdgoc-tickets
    cd gdgoc-tickets
-   ./lab up 프로젝트_ID
+   ./lab up
    ```
 
-   `gh auth login`에서 Enter를 누르고, 화면의 코드를 [github.com/login/device](https://github.com/login/device)에 넣습니다.
+   - `gh auth login`: 물음 두 개와 `Press Enter`에서 Enter만 누릅니다. 화면의 8자리 코드를 [github.com/login/device](https://github.com/login/device)에 넣습니다. 클립보드 경고(`Failed to copy`)는 무시합니다.
+   - `gh repo clone gdgoc-tickets`: 로그인한 계정의 `gdgoc-tickets`, 곧 5번에서 만든 내 저장소를 받습니다.
+   - `./lab up`: Cloud Shell이 쓰는 프로젝트(프롬프트의 노란 글씨)의 이름과 ID를 보여 주고 묻습니다. 1번에서 만든 프로젝트가 맞으면 `y`, 아니면 Enter를 누르고 콘솔 위쪽에서 프로젝트를 고른 뒤 Cloud Shell을 다시 엽니다.
 
 `./lab up`이 하는 일: 도구 설치, API 켜기, 이미지 4개 빌드, 그리고 Terraform으로 서비스 3개, 잡 하나, 주제와 구독, Eventarc 트리거, 예약 실행, 서비스 계정 8개, 보안 비밀 4개, 권한 30여 개를 만듭니다. 20~25분 걸립니다. 기다리는 동안 미션 1을 합니다.
 
@@ -158,12 +160,12 @@ cd ~/gdgoc-tickets
 
 | 메시지 | 해결 |
 |---|---|
-| `cannot see project` | 프로젝트 ID 오타. 프로젝트 이름과 다릅니다 |
+| `No project is selected` 또는 다른 프로젝트 이름 | 콘솔 위쪽에서 실습 프로젝트를 고르고 Cloud Shell을 다시 엶 |
 | `no billing account linked` | 할 일 3번 |
 | **Use this template**가 없음 | 실습 저장소 초대를 수락했는지 확인 |
-| `gh repo clone`이 저장소를 못 찾음 | 할 일 5번의 이름이 `gdgoc-tickets`인지, Owner가 자신인지 |
+| `Could not resolve to a Repository` | 할 일 5번을 아직 안 함, 또는 이름이 `gdgoc-tickets`가 아니거나 Owner가 다른 계정 |
 | `Google Cloud is not ready yet` | 새 프로젝트에서 흔함. 명령이 1분 뒤 스스로 다시 시도 |
-| Cloud Shell이 끊김 | 다시 열고 `cd ~/gdgoc-tickets && ./lab up 프로젝트_ID` |
+| Cloud Shell이 끊김 | 다시 열고 `cd ~/gdgoc-tickets && ./lab up` |
 
 ## 미션 1. 둘러보기 (15분, `./lab up`이 도는 동안)
 
@@ -212,7 +214,7 @@ cd ~/gdgoc-tickets
    ./lab github
    ```
 
-2. 내 저장소(`github.com/GitHub_ID/gdgoc-tickets`) → **Settings** → 왼쪽 **Secrets and variables → Actions** → **Variables** 탭 → **New repository variable**. `GCP_PROJECT_ID`, `WIF_PROVIDER`, `DEPLOYER_SA`를 하나씩 추가합니다. 값은 `./lab github` 출력에서 복사합니다. 세 값은 비밀이 아니므로 **Secrets** 탭이 아니라 **Variables** 탭입니다.
+2. 내 저장소(`./lab github` 출력에 나온 주소) → **Settings** → 왼쪽 **Secrets and variables → Actions** → **Variables** 탭 → **New repository variable**. `GCP_PROJECT_ID`, `WIF_PROVIDER`, `DEPLOYER_SA`를 하나씩 추가합니다. 값은 `./lab github` 출력에서 복사합니다. 세 값은 비밀이 아니므로 **Secrets** 탭이 아니라 **Variables** 탭입니다.
 3. 2분 기다린 뒤 **Actions** → 왼쪽 **Sign-in test** → **Run workflow** → **Run workflow**.
 
 **예측.** 키를 하나도 넣지 않았습니다. 로그인될까요?
@@ -662,7 +664,7 @@ git switch main && git push origin --delete try-branch
 
 | 명령 | 하는 일 |
 |---|---|
-| `./lab up 프로젝트_ID` | 전부 만들기. 다시 실행하면 코드의 설정으로 되돌림 |
+| `./lab up` | 전부 만들기. 다시 실행하면 코드의 설정으로 되돌림 |
 | `./lab iam` | 계정마다 가진 권한과 이유 |
 | `./lab github` | 키 없는 로그인 만들기, GitHub에 넣을 변수 세 개 출력 |
 | `./lab mail on`, `./lab mail off` | 실제 메일 켜고 끄기 |

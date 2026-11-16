@@ -438,6 +438,25 @@ def test_github_outside_the_students_copy_says_how_to_make_one(lab, monkeypatch,
     assert applied == [] and lab.read_tfvars()["github_repo_id"] == "0"
 
 
+def test_up_without_an_id_uses_the_cloud_shell_project_once_confirmed(lab, monkeypatch):
+    calls = []
+
+    def fake_sh(cmd, capture=False, check=True, **kw):
+        calls.append(cmd)
+        return "airy-adapter-514904-p9\n" if cmd[:3] == ["gcloud", "config", "get-value"] else "realtestrun\n"
+
+    monkeypatch.setattr(lab, "sh", fake_sh)
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    assert lab.chosen_project() == "airy-adapter-514904-p9"
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    with pytest.raises(SystemExit):
+        lab.chosen_project()
+    # Once the lab is set up, its own project, with no question
+    lab.write_tfvars({"project_id": P, "lab_parts": ["start"]})
+    monkeypatch.setattr("builtins.input", lambda prompt: pytest.fail("asked again"))
+    assert lab.chosen_project() == P
+
+
 def test_the_billing_message_shows_what_gcloud_said_when_it_fails(lab):
     class Failing(lab.Cloud):
         def gcloud(self, *args, project=True):
