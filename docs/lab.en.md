@@ -149,7 +149,7 @@ Missions 0, 1, 3 and 12 are setup and wrap-up.
    - `gh repo clone gdgoc-tickets`: gets the signed-in account's `gdgoc-tickets` (the repository you made in step 5).
    - `./lab up`: shows the name and ID of the project Cloud Shell is using (the yellow text in the prompt) and asks. If it is the project from step 1, type `y`; if not, press Enter, pick the project at the top of the Console and reopen Cloud Shell.
 
-What `./lab up` does: installs tools, turns on APIs, builds four images with Cloud Build, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes 20 to 25 minutes. Do Mission 1 while you wait.
+What `./lab up` does: installs tools, turns on APIs, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes about 15 minutes. Do Mission 1 while you wait. The app's images don't exist yet, so the services start on Google's sample image; GitHub Actions deploys the real app for the first time in Mission 2.
 
 **If it stops, run `./lab up` again.** Whatever the error, the same command keeps what was built and continues. While you wait, keep the Cloud Shell tab open and press Enter now and then: Cloud Shell shuts down after 40 minutes without input.
 
@@ -158,7 +158,7 @@ What `./lab up` does: installs tools, turns on APIs, builds four images with Clo
 2. You: pick your neighbor's project in the project menu at the top of the Console. Run the `./lab` commands together in your neighbor's Cloud Shell.
 3. After the session, finish your own project with `cd ~/gdgoc-tickets && ./lab up`. When the lab ends, your neighbor removes your access.
 
-**Check.** The last line shows your site's address. Opening it shows an empty event list.
+**Check.** The last line shows your site's address. Opening it shows Google's sample page; it becomes the real site after your first deploy in Mission 2.
 
 **Why.** A budget only sends alerts; it does not stop anything. **Do not click "Upgrade to a full account".** Building each component in the Console is mostly filling in forms, so a command does it, and the lab's time goes to connecting, using, breaking and measuring. Building them is the topic of the next session (Terraform).
 
@@ -248,7 +248,7 @@ You connect two outside services to what was built: GitHub (push code, get a dep
 
 **Where to look.** **Actions** → the new run (**CI/CD**) → the steps of the `deploy` job. ☰ → **Cloud Run** → `web` → **Revisions** tab.
 
-**Check.** About 7 minutes later every job is green and the site's home page shows your sentence. `web`'s new revision has 100%. `./lab check deploys`.
+**Check.** About 7 minutes later every job is green, the site changes from the sample page to the real site, and its home page shows your sentence. `web`'s new revision has 100%. `./lab check deploys`.
 
 **Why.** For every run GitHub issues a short-lived token that contains the repository ID and the branch. Google Cloud accepts only tokens that match the attribute condition (your repository ID, `main`) and exchanges them for a short-lived `tickets-deployer` token. With no stored key, there is no key to leak or rotate. The same repository on another branch is refused, and someone else's repository has another ID. The three variables only say where to sign in.
 

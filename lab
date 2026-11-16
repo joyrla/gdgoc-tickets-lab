@@ -17,8 +17,7 @@ docs/lab.ko.md says when to use each.
   ./lab pause                  pause the Scheduler, turn off deploys
   ./lab down                   delete everything the lab made in Google Cloud
   one part at a time, as in the hand-built lab:
-  ./lab start PROJECT_ID       tools, GitHub sign-in, APIs, image registry, the first images
-  ./lab images                 build the four images with Cloud Build (start and up run it)
+  ./lab start PROJECT_ID       tools, GitHub sign-in, APIs, image registry
   ./lab base|workers|warmup|deployer   build that part
   ./lab env [web|job|github]   values to paste into the Console and GitHub
   ./lab skip STEP              build a hand step for you; the report shows it as skipped
@@ -86,7 +85,7 @@ TTL_GROUPS = ["registrations", "codes", "emails", "login_codes", "sent_emails"]
 # Not trust and deployer: ./lab github adds them.
 UP_PARTS = ["start", "database", "base", "topics", "web", "workers", "eventarc", "schedule", "warmup"]
 PART_BUILT = {
-    "start": "APIs, the image registry gdgoc-tickets and the four images",
+    "start": "APIs and the image registry gdgoc-tickets (GitHub Actions pushes the images)",
     "database": "the Firestore database (default)",
     "base": "expiry rules, the waitlist index, the bucket, 8 service accounts, 4 secrets",
     "topics": "topics registrations, emails, dead-letter and the subscriptions ticket-worker, dead-letter",
@@ -170,13 +169,6 @@ ROLE_TITLES = {
     "roles/run.developer": "Cloud Run Developer",
 }
 
-CLOUD_BUILD_NOT_READY = re.compile(r"PERMISSION_DENIED|has not been used|SERVICE_DISABLED|not ready")
-
-# A connection that failed for a moment: worth trying again, not a mistake to fix
-NETWORK_ERROR = re.compile(
-    r"connection refused|connection reset|i/o timeout|TLS handshake timeout|no such host|"
-    r"unexpected EOF|50[234] (Bad Gateway|Service Unavailable|Gateway Timeout)"
-)
 
 RETRYABLE = re.compile(
     r"not ready|retry in a few minutes|recently enabled|has not been used|SERVICE_DISABLED|"
@@ -706,7 +698,6 @@ def prepare(project: str) -> tuple[Cloud, dict]:
             "project_id": project,
             "github_repo_id": "0",  # your copy's ID, set by ./lab github
             "admin_emails": [account],
-            "lab_image_tag": "lab",
             "lab_parts": ["start"],
         }
         write_tfvars(values)
@@ -730,7 +721,6 @@ def start(project: str) -> None:
     print("Turning on the APIs and creating the image registry. This takes about 3 minutes.")
     apply(cloud, ["start"])
     eventarc_agent(cloud)
-    build_images(cloud)
     print()
     print("Done. Next: step 2, the Firestore database, in the Console.")
 
@@ -741,47 +731,9 @@ def eventarc_agent(cloud: Cloud) -> None:
         f"--project={cloud.project}", "--quiet"], capture=True, check=False)  # fmt: skip
 
 
-def build_images(cloud: Cloud) -> subprocess.Popen | None:
-    """Build the four images in the background, unless they are in the registry already."""
-    if images_ready(cloud):
-        print("The images are already in the registry.")
-        return None
-    log = HOME / "images.log"
-    with open(log, "w") as out:
-        builder = subprocess.Popen(
-            [sys.executable, __file__, "images"],
-            cwd=REPO,
-            stdout=out,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    print(f"Cloud Build is building the four images (about 5 minutes; progress: tail -f {log}).")
-    return builder
-
-
-def wait_for_images(cloud: Cloud, builder: subprocess.Popen | None, minutes: int = 25) -> None:
-    log = HOME / "images.log"
-    started = time.monotonic()
-    while True:
-        ready = [name for name in IMAGES if image_ready(cloud, name)]
-        if len(ready) == len(IMAGES):
-            print("The four images are ready.")
-            return
-        if builder and builder.poll():
-            tail = "\n".join(log.read_text().splitlines()[-15:]) if log.exists() else ""
-            if NETWORK_ERROR.search(tail):
-                die(f"The image build stopped on a network error:\n{tail}\nNothing to fix: run ./lab up again.")
-            die(f"The image build stopped:\n{tail}\nFix what it says, then run ./lab up again.")
-        waited = (time.monotonic() - started) / 60
-        if waited > minutes:
-            die(f"The images are not ready after {minutes} minutes. Read {log}, run ./lab images, then ./lab up again.")
-        print(f"  waiting for the images: {len(ready)} of {len(IMAGES)} ready, {waited:.0f} min so far", flush=True)
-        time.sleep(30)
-
-
 def up(project: str) -> None:
     cloud, values = prepare(project)
-    print("Building the whole lab with Terraform: 20 to 25 minutes the first time, a few minutes after that.")
+    print("Building the whole lab with Terraform: about 15 minutes the first time, a few minutes after that.")
     print("Safe to run again: a rerun puts every setting you changed in the Console back to the code's settings.")
     if "web" not in values.get("lab_parts", []):
         # First build. Every load-test visitor comes from one Cloud Shell address, and web allows
@@ -790,57 +742,27 @@ def up(project: str) -> None:
         values.setdefault("signups_per_minute_per_ip", 5000)
         values.setdefault("worker_delay_ms", 2000)
         write_tfvars(values)
-    if not images_ready(cloud):
+    if "web" not in read_tfvars().get("lab_parts", []):
         print("\nTurning on the APIs and creating the image registry (about 3 minutes).")
         apply(cloud, ["start"])
         eventarc_agent(cloud)
-        wait_for_images(cloud, build_images(cloud))
     parts = up_parts(read_tfvars(), cloud)
     print(f"\nApplying {len(parts)} parts (Terraform takes over anything already made by hand).")
     apply(cloud, parts)
     print("\nBuilt, from the code in infra/:")
     for part in read_tfvars()["lab_parts"]:
         print(f"  {part:<9} {PART_BUILT[part]}")
-    print("\nNext: Part 2 of the sheet, connecting GitHub (./lab github) and email.")
     web = cloud.run_api("services/web") or {}
-    print(f"Your site: {web.get('uri') or cloud.url('web')}")
+    print(f"\nYour site: {web.get('uri') or cloud.url('web')}")
+    if placeholder(web):
+        print("It shows Google's sample page until your first deploy from GitHub (Part 2 of the sheet).")
+    print("Next: Part 2 of the sheet, connecting GitHub and email.")
 
 
-def image_ready(cloud: Cloud, name: str) -> bool:
-    return cloud.exists("artifacts", "docker", "images", "describe", f"{cloud.registry}/{name}:lab")
-
-
-def images_ready(cloud: Cloud) -> bool:
-    return all(image_ready(cloud, name) for name in IMAGES)
-
-
-def images() -> None:
-    """Build the four images with Cloud Build (scripts/lab-images.yaml) and push them, before
-    GitHub Actions is connected. Cloud Build runs inside the project, so no Docker is needed here."""
-    cloud = cloud_from_settings()
-    command = ["gcloud", "builds", "submit", str(REPO), "--config", str(REPO / "scripts/lab-images.yaml"),
-               "--substitutions", f"_REGISTRY={cloud.registry}", "--project", cloud.project, "--quiet"]  # fmt: skip
-    for attempt in range(1, 6):
-        print(f"building the four images with Cloud Build into {cloud.registry}", flush=True)
-        code, output = streamed(command)
-        if code == 0:
-            print("images ready", flush=True)
-            return
-        # Right after ./lab up turns Cloud Build on, it refuses builds for a minute or two
-        if attempt == 5 or not CLOUD_BUILD_NOT_READY.search(output):
-            die("Stopped: the image build failed (the lines above say why).")
-        print(f"Cloud Build is not ready yet. Trying again in a minute ({attempt} of 4).", flush=True)
-        time.sleep(60)
-
-
-def streamed(command: list) -> tuple[int, str]:
-    """Run a command, printing its output as it comes, and return (exit code, output)."""
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=REPO)
-    lines = []
-    for line in process.stdout:
-        print(line, end="", flush=True)
-        lines.append(line)
-    return process.wait(), "".join(lines)
+def placeholder(service: dict) -> bool:
+    """Whether a service still runs the sample image Terraform starts it with (before the first deploy)."""
+    image = ((service or {}).get("template", {}).get("containers") or [{}])[0].get("image", "")
+    return image.startswith("us-docker.pkg.dev/cloudrun/container/")
 
 
 def need(ready: bool, message: str) -> None:
@@ -859,10 +781,6 @@ def shortcut(name: str) -> None:
         need(
             all(cloud.exists("pubsub", "topics", "describe", t) for t in ("registrations", "emails", "dead-letter")),
             "Step 4 first: the three topics (or ./lab skip 4).",
-        )
-        need(
-            images_ready(cloud),
-            f"The images are not in the registry yet. Wait for {HOME / 'images.log'} to say 'images ready', or run ./lab images.",
         )
     if name in ("warmup",):
         need(bool(cloud.run_api("services/web")), "Step 5 first: deploy web (or ./lab skip 5).")
@@ -1320,13 +1238,7 @@ def check_billing(c: Cloud, r: Result) -> None:
 def check_start(c: Cloud, r: Result) -> None:
     if not c.exists("artifacts", "repositories", "describe", "gdgoc-tickets", "--location", c.region):
         raise NotBuilt("no image registry yet (./lab start)")
-    r.ok("image registry gdgoc-tickets")
-    for name in IMAGES:
-        r.expect(
-            c.exists("artifacts", "docker", "images", "describe", f"{c.registry}/{name}:lab"),
-            f"image {name}:lab",
-            f"image {name}:lab is missing (still building? tail {HOME / 'images.log'})",
-        )
+    r.ok("image registry gdgoc-tickets (GitHub Actions pushes the images)")
 
 
 def check_database(c: Cloud, r: Result) -> None:
@@ -1499,6 +1411,9 @@ def check_web(c: Cloud, r: Result) -> None:
             f"  tickets-web may read {secret}",
             f"  tickets-web may not read {secret} (Secret Manager → {secret} → Permissions)",
         )
+    if placeholder(svc):
+        r.ok("the site shows Google's sample page until the first deploy from GitHub")
+        return
     try:
         with urllib.request.urlopen(svc.get("uri", c.url("web")) + "/", timeout=30) as page:
             r.expect(b"Cloud Ticketing" in page.read(), "the site answers", "the site answers but not with the app")
@@ -1952,8 +1867,6 @@ def skip(step: str) -> None:
                 cloud.exists("firestore", "databases", "describe", "--database=(default)"),
                 "Step 2 first (or ./lab skip 2)",
             )
-        if n in (5, 12):
-            need(images_ready(cloud), "The images are not ready yet: ./lab images")
         print(f"Building step {n} with Terraform.")
         apply(cloud, SKIPS[n])
     record_skip(n)
@@ -2306,8 +2219,6 @@ def main(argv: list) -> None:
         coldstart()
     elif command == "drift" and not args:
         drift()
-    elif command == "images":
-        images()
     elif command in SHORTCUTS and not args:
         shortcut(command)
     elif command == "iam":

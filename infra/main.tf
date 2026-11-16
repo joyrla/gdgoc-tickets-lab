@@ -14,8 +14,8 @@ locals {
     "sts.googleapis.com",
   ]
   extra_apis = ["recaptchaenterprise.googleapis.com", "monitoring.googleapis.com"]
-  # ./lab check reads the budget through Billing Budgets; ./lab up builds the first images with Cloud Build
-  lab_apis = local.lab ? ["billingbudgets.googleapis.com", "cloudbuild.googleapis.com"] : []
+  # ./lab check reads the budget through this API
+  lab_apis = local.lab ? ["billingbudgets.googleapis.com"] : []
   apis     = concat(local.core_apis, var.production_extras ? local.extra_apis : [], local.lab_apis)
 
   # Each service runs as its own identity and gets only the roles it needs (iam.tf)

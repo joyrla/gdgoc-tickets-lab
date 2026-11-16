@@ -457,24 +457,10 @@ def test_up_without_an_id_uses_the_cloud_shell_project_once_confirmed(lab, monke
     assert lab.chosen_project() == P
 
 
-def test_images_wait_for_cloud_build_turned_on_a_moment_ago(lab, monkeypatch):
-    results = [(1, "ERROR: (gcloud.builds.submit) PERMISSION_DENIED: The caller does not have permission"), (0, "DONE")]
-    lab.write_tfvars({"project_id": P, "lab_parts": ["start"]})
-    monkeypatch.setattr(lab, "streamed", lambda command: results.pop(0))
-    monkeypatch.setattr(lab.time, "sleep", lambda seconds: None)
-    lab.images()
-    assert results == []
-
-
-def test_a_failing_image_build_is_not_retried(lab, monkeypatch):
-    calls = []
-    lab.write_tfvars({"project_id": P, "lab_parts": ["start"]})
-    monkeypatch.setattr(
-        lab, "streamed", lambda command: calls.append(command) or (1, "Step #0: pip: no matching distribution")
-    )
-    with pytest.raises(SystemExit):
-        lab.images()
-    assert len(calls) == 1
+def test_a_web_still_on_the_sample_image_is_not_a_failure(lab):
+    sample = {"template": {"containers": [{"image": "us-docker.pkg.dev/cloudrun/container/hello"}]}}
+    real = {"template": {"containers": [{"image": "asia-northeast3-docker.pkg.dev/p/gdgoc-tickets/web:3f1bb83"}]}}
+    assert lab.placeholder(sample) and not lab.placeholder(real) and not lab.placeholder({})
 
 
 def stale_lock(lab, monkeypatch, answer):
