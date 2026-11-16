@@ -4,9 +4,9 @@ The site you build in this lab takes signups for events. An organizer opens an e
 
 There is one goal: **give out exactly the seats that exist, and never lose one.** There are two difficulties: signups arrive all at once, and the rest of the time almost nobody comes.
 
-Below are the moments one event goes through. For each one, read what goes wrong and what is needed, then answer the question in your own words. If you can't, read the linked page. Every mission of the lab covers one of these moments.
+Below are the moments one event goes through. For each one, read what goes wrong and what is needed, then answer the question in your own words. If you can't, read the linked page. Every task of the lab covers one of these moments.
 
-| Moment | Problem | What it needs | Lab missions |
+| Moment | Problem | What it needs | Lab tasks |
 |---|---|---|---|
 | 1. Signups open | Hundreds in one second. One server can't take it; enough servers for the peak sit idle and cost money all day | Servers that add copies under load and go to zero without it: **Cloud Run autoscaling** | 0, 9 |
 | 2. Copies come and go | Each copy has its own memory and can disappear at any time. A seat count kept in a server is wrong or lost | Servers that remember nothing, data outside: **Firestore, Cloud Storage** | 4, 7 |

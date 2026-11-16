@@ -50,9 +50,14 @@ check "Pub/Sub topics"      gcloud pubsub topics list --format="value(name.basen
 check "Eventarc triggers"   gcloud eventarc triggers list --location="$REGION" --format="value(name.basename())"
 check "Scheduler jobs"      gcloud scheduler jobs list --location="$REGION" --format="value(name.basename())"
 check "secrets"             gcloud secrets list --format="value(name.basename())"
-echo "(The bucket $PROJECT-tfstate is expected. Anything else listed above failed to delete, or was not made by this lab.)"
-echo "Terraform's state stays in gs://$PROJECT-tfstate; its old versions hold the old secret values."
-echo "  When you will not apply again:  gcloud storage rm -r gs://$PROJECT-tfstate"
+if [ -n "${LAB_DOWN:-}" ]; then
+  # ./lab down deletes the state bucket next
+  echo "(Anything listed above other than $PROJECT-tfstate failed to delete, or was not made by this lab.)"
+else
+  echo "(The bucket $PROJECT-tfstate is expected. Anything else listed above failed to delete, or was not made by this lab.)"
+  echo "Terraform's state stays in gs://$PROJECT-tfstate; its old versions hold the old secret values."
+  echo "  When you will not apply again:  gcloud storage rm -r gs://$PROJECT-tfstate"
+fi
 
 if [ "${1:-}" = "--unlink-billing" ]; then
   echo
@@ -61,6 +66,8 @@ if [ "${1:-}" = "--unlink-billing" ]; then
   echo "To stop the billing account itself: Billing → Account management → Close billing account."
 fi
 
-echo
-echo "Note: the Workload Identity pool \"github\" stays soft-deleted for 30 days. To apply again before then:"
-echo "  gcloud iam workload-identity-pools undelete github --location=global --project=$PROJECT"
+if [ -z "${LAB_DOWN:-}" ]; then
+  echo
+  echo "Note: the Workload Identity pool \"github\" stays soft-deleted for 30 days. To apply again before then:"
+  echo "  gcloud iam workload-identity-pools undelete github --location=global --project=$PROJECT"
+fi

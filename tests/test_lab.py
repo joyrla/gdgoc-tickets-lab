@@ -690,3 +690,32 @@ def test_the_report_lists_every_step_with_a_check(lab, monkeypatch, tmp_path, ca
         assert re.search(rf"^{name} ", report, re.M), name
     assert set(lab.STEP_CHECKS.values()) <= set(lab.CHECKS)
     assert json.dumps(P)[1:-1] in report
+
+
+def test_down_deletes_the_state_bucket_and_the_settings_so_up_can_start_over(lab, tmp_path, monkeypatch):
+    infra = tmp_path / "infra"
+    (infra / ".terraform").mkdir(parents=True)
+    monkeypatch.setattr(lab, "INFRA", infra)
+    lab.write_tfvars({"project_id": P, "admin_emails": ["a@gmail.com"], "lab_parts": ["start"]})
+    lab.link_settings()
+    commands = []
+    monkeypatch.setattr("builtins.input", lambda prompt: P)
+    monkeypatch.setattr(lab, "terraform_env", lambda: {})
+    monkeypatch.setattr(lab, "ensure_terraform", lambda env: None)
+    monkeypatch.setattr(lab, "adopt", lambda cloud, parts, env: None)
+    monkeypatch.setattr(lab, "own_repo", lambda: None)
+    monkeypatch.setattr(lab.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""))
+    monkeypatch.setattr(lab, "sh", lambda cmd, **kw: commands.append(cmd) or "")
+    lab.down()
+    assert ["gcloud", "storage", "rm", "--recursive", f"gs://{P}-tfstate", "--project", P] in commands
+    assert not lab.HOME.exists() and not (infra / ".terraform").exists()
+    assert not (infra / "terraform.tfvars").is_symlink() and not (infra / "backend.hcl").is_symlink()
+
+
+def test_down_stops_unless_the_project_id_is_typed(lab, monkeypatch):
+    lab.write_tfvars({"project_id": P, "admin_emails": ["a@gmail.com"], "lab_parts": ["start"]})
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    monkeypatch.setattr(lab, "sh", lambda cmd, **kw: pytest.fail("ran something"))
+    with pytest.raises(SystemExit):
+        lab.down()
+    assert lab.TFVARS.exists()

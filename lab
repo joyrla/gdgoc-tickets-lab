@@ -32,6 +32,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -2109,17 +2110,26 @@ def down() -> None:
     adopt(cloud, PARTS, env)
     for attempt in range(1, 4):
         # cleanup.sh asks for "yes" before destroying, and once more if Firestore is protected
-        done = subprocess.run([str(INFRA / "cleanup.sh")], input="yes\nyes\n", text=True, env=env)
+        done = subprocess.run([str(INFRA / "cleanup.sh")], input="yes\nyes\n", text=True, env={**env, "LAB_DOWN": "1"})
         if done.returncode == 0:
             break
         if attempt == 3:
             die("Teardown kept failing. Read the error above, then run ./lab down again.")
         print("Teardown stopped partway. Trying the rest again in 30 seconds.")
         time.sleep(30)
+    # Terraform's state is empty now. Delete its bucket and this Cloud Shell's settings, so
+    # nothing is left and a later ./lab up starts over, in this project or another one.
+    sh(["gcloud", "storage", "rm", "--recursive", f"gs://{cloud.project}-tfstate", "--project", cloud.project],
+       check=False)  # fmt: skip
+    shutil.rmtree(HOME, ignore_errors=True)
+    shutil.rmtree(INFRA / ".terraform", ignore_errors=True)
+    for name in ("terraform.tfvars", "backend.hcl"):
+        (INFRA / name).unlink(missing_ok=True)
     repo = own_repo()
     if repo:
         gh("variable", "delete", "DEPLOY_ENABLED", "--repo", repo)
         print(f"Deploys from {repo} are off. Delete the repository on GitHub if you no longer need it.")
+    print(f"Done. Nothing the lab made is left in {cloud.project}.")
 
 
 # ---------------------------------------------------------------- drift

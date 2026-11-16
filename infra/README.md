@@ -44,7 +44,7 @@ outside Terraform until then, and `./lab` imports it before it applies.
 | `eventarc` | Trigger `registration-changed`, its invoker grant | `./lab up` |
 | `schedule` | Job `housekeeping`, Scheduler job, its invoker grant | `./lab up` |
 | `warmup` | Custom role `webScaler`, act-as on `web` | `./lab up`, `./lab warmup` |
-| `trust` | Workload identity pool `github`, provider, the repository's act-as on the deployer | by hand in the Console (Mission 2), or `./lab github` |
+| `trust` | Workload identity pool `github`, provider, the repository's act-as on the deployer | by hand in the Console (Task 2), or `./lab github` |
 | `deployer` | Deployer's Artifact Registry, Cloud Run and act-as roles | `./lab up` |
 
 ## Where to see it in the Console
