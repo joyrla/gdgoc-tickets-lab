@@ -511,6 +511,15 @@ def test_a_lock_is_kept_when_the_student_does_not_agree(lab, monkeypatch):
     assert unlocked == []
 
 
+def test_a_refused_connection_to_a_google_api_is_tried_again(lab):
+    # Cloud Shell, 2026-11-16: planning stopped on this, and a rerun went through
+    error = (
+        'Error: Error when reading or editing FirestoreDatabase: Get "https://firestore.googleapis.com/v1/x": '
+        "dial tcp 64.233.189.95:443: connect: connection refused"
+    )
+    assert lab.RETRYABLE.search(error)
+
+
 def test_the_billing_message_shows_what_gcloud_said_when_it_fails(lab):
     class Failing(lab.Cloud):
         def gcloud(self, *args, project=True):

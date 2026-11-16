@@ -180,7 +180,7 @@ NETWORK_ERROR = re.compile(
 
 RETRYABLE = re.compile(
     r"not ready|retry in a few minutes|recently enabled|has not been used|SERVICE_DISABLED|"
-    r"cannot assign requested address|connection reset|i/o timeout|TLS handshake timeout|Error 429|"
+    r"cannot assign requested address|connection reset|connection refused|i/o timeout|TLS handshake timeout|Error 429|"
     r"permissions are propagated|Eventarc Service Agent"  # in a project that just turned Eventarc on
 )
 
