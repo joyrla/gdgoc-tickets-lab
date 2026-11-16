@@ -152,6 +152,13 @@ cd ~/gdgoc-tickets
 
 `./lab up`이 하는 일: 도구 설치, API 켜기, Cloud Build로 이미지 4개 빌드, 그리고 Terraform으로 서비스 3개, 잡 하나, 주제와 구독, Eventarc 트리거, 예약 실행, 서비스 계정 8개, 보안 비밀 4개, 권한 30여 개를 만듭니다. 20~25분 걸립니다. 기다리는 동안 미션 1을 합니다.
 
+**멈추면 `./lab up`을 다시 실행합니다.** 어떤 오류로 멈추든 같은 명령을 다시 실행하면 만든 것은 그대로 두고 이어서 진행합니다. 기다리는 동안 Cloud Shell 탭을 열어 두고 가끔 Enter를 누릅니다. 입력 없이 40분이 지나면 Cloud Shell이 종료됩니다.
+
+**세션 35분까지 끝나지 않으면** 옆 사람의 프로젝트로 함께 진행합니다.
+1. 옆 사람: ☰ → **IAM 및 관리자 → IAM** → **액세스 권한 부여** → **새 주 구성원**에 내 Gmail, **역할**은 **기본 → 편집자** → **저장**.
+2. 나: 콘솔 위쪽 프로젝트 메뉴에서 옆 사람의 프로젝트를 고릅니다. `./lab` 명령은 옆 사람의 Cloud Shell에서 함께 실행합니다.
+3. 내 프로젝트는 세션 뒤에 `cd ~/gdgoc-tickets && ./lab up`으로 마저 만듭니다. 실습이 끝나면 옆 사람은 내 권한을 삭제합니다.
+
 **확인.** 마지막 줄에 사이트 주소가 나옵니다. 열면 빈 행사 목록이 보입니다.
 
 **이유.** 예산은 알림만 보냅니다. 서비스를 멈추지는 않습니다. **"전체 계정으로 업그레이드"는 누르지 않습니다.** 부품을 콘솔에서 하나하나 만드는 일은 대부분 양식 채우기라서 명령에 맡깁니다. 이 실습의 시간은 부품을 잇고, 쓰고, 고장 내고, 재는 데 씁니다. 만드는 것은 다음 회차(Terraform)에서 코드로 다룹니다.
@@ -191,7 +198,7 @@ cd ~/gdgoc-tickets
 5. Firestore 문서가 바뀔 때(`document.v1.updated`), 그중 `registrations/` 아래 문서만. 바뀐 내용은 `waitlist-promoter`로 갑니다.
 </details>
 
-`./lab iam`은 계정마다 가진 권한과 그 이유를 한 표로 보여 줍니다.
+(선택) `./lab iam`은 계정마다 가진 권한과 그 이유를 한 표로 보여 줍니다.
 
 **이유.** 콘솔은 지금 있는 것을 부품마다 따로 보여 줍니다. 부품을 어떻게 이었는지는 이 다섯 질문처럼 직접 따라가야 보입니다. 코드(`infra/*.tf`)에는 무엇이 있어야 하고 왜인지가 함께 있습니다.
 
@@ -225,21 +232,11 @@ cd ~/gdgoc-tickets
 
 **확인.** 초록색 체크. 로그인한 계정은 `tickets-deployer`입니다. 속성 조건에는 내 저장소의 ID와 `refs/heads/main`이 있습니다. `./lab check github`.
 
-4. 다른 브랜치에서 시험합니다.
-
-   ```bash
-   git switch -c try-branch && git push -u origin try-branch
-   ```
-
-   **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**.
+4. 다른 브랜치에서 시험합니다. 내 저장소 첫 화면 → 왼쪽 위 브랜치 메뉴(**main**) → `try-branch` 입력 → **Create branch try-branch from main**. 그다음 **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**.
 
 **예측.** 같은 저장소, 같은 코드입니다. 로그인될까요?
 
-**확인.** 실패합니다. 실패한 단계의 오류를 찍습니다(**제출 1**). 그다음 브랜치를 지웁니다.
-
-```bash
-git switch main && git push origin --delete try-branch
-```
+**확인.** 실패합니다. 실패한 단계의 오류를 찍습니다(**제출 1**). 그다음 브랜치를 지웁니다. 브랜치 메뉴 → **View all branches** → `try-branch` 행의 휴지통 아이콘.
 
 5. 배포를 켭니다. **Variables** 탭 → **New repository variable**: `DEPLOY_ENABLED` = `true`.
 6. 첫 배포. 홈 화면의 문장 하나를 바꿔 올립니다.
@@ -353,7 +350,7 @@ git switch main && git push origin --delete try-branch
 
 **오는 메일.** 고친 뒤 1~2분 안에 `신청 완료: 연결 확인`. 메일의 링크를 열면 티켓에 QR이 보입니다.
 
-`./lab check push`
+(선택) 설정 확인: `./lab check push`
 
 **이유.** `ticket-worker`는 인그레스가 **내부**라서 Pub/Sub의 요청은 들어올 수 있습니다(인터넷에서는 404). 하지만 **인증 필요**라서 서명 없는 요청은 403입니다. 서명을 켜면 Pub/Sub가 `tickets-pubsub-push`로 서명하고, 이 계정은 `ticket-worker`의 **Cloud Run 호출자**입니다. 문을 지나는 것(인그레스)과 들어갈 자격(IAM)은 따로입니다.
 
@@ -386,11 +383,10 @@ git switch main && git push origin --delete try-branch
 
 이제 고칩니다.
 1. **컨테이너** 탭에서 `WORKER_FAIL_RATE`를 지우고 → **차이점 확인 및 재배포** → **변경사항 배포**.
-2. 1분 기다린 뒤 실패한 메시지를 다시 보냅니다(가져오기로 본 메시지는 1분 동안 숨겨집니다).
-
-   ```bash
-   scripts/replay-dead-letters.sh --replay
-   ```
+2. 1분 기다린 뒤(가져오기로 본 메시지는 1분 동안 숨겨집니다) 실패한 메시지를 원래 주제로 다시 보냅니다.
+   - 구독 `dead-letter` → **메시지** 탭 → **확인 메시지 사용 설정** 체크 → **가져오기**. 가져온 메시지는 `dead-letter`에서 삭제됩니다. 메시지 본문 `{"registration_id": "..."}`를 복사합니다.
+   - ☰ → **Pub/Sub → 주제** → `registrations` → **메시지** 탭 → **메시지 게시** → 메시지 본문에 붙여넣기 → **게시**.
+   - 메시지가 여러 개이면 `scripts/replay-dead-letters.sh --replay`가 같은 일을 한 번에 합니다.
 
 **오는 메일.** 다시 보내고 몇 초 뒤 `you+b@gmail.com` 앞으로 `신청 완료: 연결 확인`. 몇 분 뒤 로그에서 `skip ... (status issued)`를 찾아봅니다.
 
@@ -507,11 +503,7 @@ git switch main && git push origin --delete try-branch
 **확인.** 첫 요청은 몇 초, 이후는 0.1초 안쪽. 측정표에 적습니다.
 
 **사전 준비.**
-1. 20분 뒤에 신청이 열리는 행사를 만듭니다. 관리 화면의 **새 행사 만들기**에서 **신청 시작**을 20분 뒤로 정하는 것과 같습니다.
-
-   ```bash
-   ./lab event opening --opens-in 20
-   ```
+1. 10분 뒤에 신청이 열리는 행사를 만듭니다. 사전 준비는 오픈 15분 전부터입니다. 사이트 → **관리** → **새 행사 만들기**: **행사 이름** `오픈 준비 확인`, **주소** `opening`, **장소** `온라인`, **신청 시작**은 지금부터 10분 뒤, **공개** 체크 → **행사 만들기**.
 
 2. ☰ → **Cloud Scheduler** → `housekeeping` 행을 체크 → **강제 실행**. 기다리지 않고 잡을 바로 실행합니다.
 3. ☰ → **Cloud Run → 작업** → `housekeeping` → **기록** 탭 → 방금 실행 → 로그.
@@ -529,10 +521,10 @@ git switch main && git push origin --delete try-branch
 **어디서:** Cloud Shell, 콘솔
 
 **할 일.**
-1. 3분 뒤 열리는 행사(정원 100, 대기 50)를 만들고 바로 부하 테스트를 실행합니다. 방문자 300명이 오픈 전에 행사 페이지를 열어 두었다가, 열리는 순간 **신청하기**를 누릅니다.
+1. 사이트 → **관리** → **새 행사 만들기**: **행사 이름** `신청 몰림 A`, **주소** `rush-a`, **장소** `온라인`, **신청 시작**은 지금부터 3분 뒤, **정원** `100`, **대기 정원** `50`, **공개** 체크 → **행사 만들기**.
+2. 바로 부하 테스트를 실행합니다. 방문자 300명이 오픈 전에 행사 페이지를 열어 두었다가, 열리는 순간 **신청하기**를 누릅니다.
 
    ```bash
-   ./lab event rush-a --opens-in 3 --seats 100 --waitlist 50
    ./lab load rush-a
    ```
 
@@ -547,14 +539,14 @@ git switch main && git push origin --delete try-branch
 
 **확인.** Locust의 `Signups:` 줄과 응답 시간 표, `held` = `issued` = 100. 측정표에 적고 찍습니다(**제출 6**). 오픈 직전이라 사전 준비(미션 10)가 인스턴스 3개를 먼저 띄워 두었을 수 있습니다. 그래프에서 3개보다 몇 개 더 늘었는지 봅니다.
 
-2. 동시성을 바꿔 다시 잽니다. `web` → **컨테이너** 탭 → **인스턴스당 최대 동시 요청 수** `2` → **차이점 확인 및 재배포** → **변경사항 배포**.
+3. 동시성을 바꿔 다시 잽니다. `web` → **컨테이너** 탭 → **인스턴스당 최대 동시 요청 수** `2` → **차이점 확인 및 재배포** → **변경사항 배포**.
+4. **새 행사 만들기**를 한 번 더: **행사 이름** `신청 몰림 C`, **주소** `rush-c`, **신청 시작**은 지금부터 2분 뒤, **정원** `100`, **대기 정원** `50`, **공개** 체크. 바로 방문자 150명으로 실행합니다.
 
    ```bash
-   ./lab event rush-c --opens-in 1 --seats 100 --waitlist 50
-   ./lab load rush-c --users 150 --minutes 3
+   ./lab load rush-c --users 150 --minutes 4
    ```
 
-3. 끝나면 동시성을 `40`으로 되돌립니다.
+5. 끝나면 동시성을 `40`으로 되돌립니다.
 
 **예측.** 방문자가 절반인데 인스턴스는 첫 번째보다 많을까요, 적을까요?
 
@@ -575,13 +567,15 @@ git switch main && git push origin --delete try-branch
    ```
 
 3. 실습을 멈춥니다.
+   - ☰ → **Cloud Scheduler** → `housekeeping` 행 체크 → **일시중지**.
+   - 내 저장소 → **Settings → Secrets and variables → Actions → Variables** → `DEPLOY_ENABLED`의 연필 아이콘 → 값 `false` → **Update variable**.
+4. 확인과 제출용 보고서를 만듭니다.
 
    ```bash
-   ./lab pause
    ./lab check --report
    ```
 
-**이유.** 서비스는 요청이 없으면 0으로 줄어 비용이 없습니다. 잡은 5분마다 하루 288번 실행되므로 일시중지합니다. `./lab pause`는 GitHub의 `DEPLOY_ENABLED`도 끕니다. `./lab drift`가 보여 준 차이가 다음 회차(Terraform)의 출발점입니다. 콘솔에서 바꾼 것은 코드에 없고, 코드를 다시 적용하면(`./lab up`) 사라집니다. 프로젝트는 지우지 않습니다. 메일 키는 실습이 끝나면 스터디장이 폐기합니다.
+**이유.** 서비스는 요청이 없으면 0으로 줄어 비용이 없습니다. 잡은 5분마다 하루 288번 실행되므로 일시중지합니다. 배포도 꺼 두면 실수로 올린 코드가 배포되지 않습니다. `./lab drift`가 보여 준 차이가 다음 회차(Terraform)의 출발점입니다. 콘솔에서 바꾼 것은 코드에 없고, 코드를 다시 적용하면(`./lab up`) 사라집니다. 프로젝트는 지우지 않습니다. 메일 키는 실습이 끝나면 스터디장이 폐기합니다.
 
 > **선택 제출:** 결제 보고서(프로젝트로 필터, 서비스별)
 
@@ -668,11 +662,11 @@ git switch main && git push origin --delete try-branch
 | `./lab iam` | 계정마다 가진 권한과 이유 |
 | `./lab github` | 키 없는 로그인 만들기, GitHub에 넣을 변수 세 개 출력 |
 | `./lab mail on`, `./lab mail off` | 실제 메일 켜고 끄기 |
-| `./lab event ID [--opens-in 분] [--seats N] [--waitlist N]` | 공개된 행사 만들기(관리 화면의 새 행사 만들기와 같음) |
+| `./lab event ID [--opens-in 분] [--seats N] [--waitlist N]` | (선택) 공개된 행사 만들기. 실습에서는 관리 화면의 새 행사 만들기 사용 |
 | `./lab load 행사_ID [--users N] [--minutes M]` | 부하 테스트 |
 | `./lab coldstart` | 첫 요청과 이후 요청 시간 |
 | `./lab code` | 운영진 로그인 코드(메일이 꺼져 있을 때) |
 | `./lab check [이름]`, `./lab check --report` | 확인과 보고서 |
 | `./lab drift` | 콘솔에서 바꾼 것과 코드의 차이 |
-| `./lab pause` | 잡과 배포 멈추기 |
+| `./lab pause` | (선택) 미션 12의 멈추기를 한 번에 |
 | `./lab down` | 실습이 만든 것 모두 지우기 |

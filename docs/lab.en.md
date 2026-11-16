@@ -151,6 +151,13 @@ These are the eight moments you learn the most from. The other missions (0 setup
 
 What `./lab up` does: installs tools, turns on APIs, builds four images with Cloud Build, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes 20 to 25 minutes. Do Mission 1 while you wait.
 
+**If it stops, run `./lab up` again.** Whatever the error, the same command keeps what was built and continues. While you wait, keep the Cloud Shell tab open and press Enter now and then: Cloud Shell shuts down after 40 minutes without input.
+
+**Not done by minute 35 of the session?** Work in your neighbor's project.
+1. Your neighbor: ☰ → **IAM & Admin → IAM** → **Grant access** → **New principals**: your Gmail, **Role**: **Basic → Editor** → **Save**.
+2. You: pick your neighbor's project in the project menu at the top of the Console. Run the `./lab` commands together in your neighbor's Cloud Shell.
+3. After the session, finish your own project with `cd ~/gdgoc-tickets && ./lab up`. When the lab ends, your neighbor removes your access.
+
 **Check.** The last line shows your site's address. Opening it shows an empty event list.
 
 **Why.** A budget only sends alerts; it does not stop anything. **Do not click "Upgrade to a full account".** Building each part in the Console is mostly filling in forms, so a command does it. This lab spends its time connecting, using, breaking and measuring the parts. Building them is the topic of the next session (Terraform).
@@ -190,7 +197,7 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
 5. A Firestore document update (`document.v1.updated`), only for documents under `registrations/`. The change goes to `waitlist-promoter`.
 </details>
 
-`./lab iam` shows every account's permissions and the reason for each in one table.
+(Optional) `./lab iam` shows every account's permissions and the reason for each in one table.
 
 **Why.** The Console shows what exists now, one part at a time. How the parts connect only shows when you follow it, as in these five questions. The code (`infra/*.tf`) holds what should exist and why.
 
@@ -224,21 +231,11 @@ You connect two outside services to what was built: GitHub (push code, get a dep
 
 **Check.** A green tick. It signed in as `tickets-deployer`. The attribute condition holds your repository's ID and `refs/heads/main`. `./lab check github`.
 
-4. Try another branch.
-
-   ```bash
-   git switch -c try-branch && git push -u origin try-branch
-   ```
-
-   **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**.
+4. Try another branch. Your repository's main page → the branch menu at the top left (**main**) → type `try-branch` → **Create branch try-branch from main**. Then **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**.
 
 **Predict.** Same repository, same code. Will it sign in?
 
-**Check.** It fails. Take a screenshot of the failed step's error (**Submit 1**). Then delete the branch.
-
-```bash
-git switch main && git push origin --delete try-branch
-```
+**Check.** It fails. Take a screenshot of the failed step's error (**Submit 1**). Then delete the branch: the branch menu → **View all branches** → the trash icon on the `try-branch` row.
 
 5. Turn deploys on. **Variables** tab → **New repository variable**: `DEPLOY_ENABLED` = `true`.
 6. Your first deploy. Change one sentence on the home page and push it.
@@ -352,7 +349,7 @@ This is the connection you make in the Console yourself.
 
 **Email.** Within a minute or two of the fix: `신청 완료: 연결 확인` (signup complete). Its link opens the ticket, now with a QR code.
 
-`./lab check push`
+(Optional) Check the setting: `./lab check push`
 
 **Why.** `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub may come in (from the internet they get 404). But it requires authentication, so an unsigned request gets 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, which holds **Cloud Run Invoker** on `ticket-worker`. Getting through the door (ingress) and being allowed in (IAM) are separate.
 
@@ -385,11 +382,10 @@ This is the connection you make in the Console yourself.
 
 Now fix it.
 1. In the **Containers** tab, delete `WORKER_FAIL_RATE` → **Review changes and redeploy** → **Deploy changes**.
-2. Wait a minute, then send the failed message back (a message you pulled stays hidden for one minute).
-
-   ```bash
-   scripts/replay-dead-letters.sh --replay
-   ```
+2. Wait a minute (a message you pulled stays hidden for one minute), then send the failed message back to its topic.
+   - Subscription `dead-letter` → **Messages** tab → tick **Enable ack messages** → **Pull**. The pulled message is removed from `dead-letter`. Copy its body, `{"registration_id": "..."}`.
+   - ☰ → **Pub/Sub → Topics** → `registrations` → **Messages** tab → **Publish message** → paste the body → **Publish**.
+   - With many messages, `scripts/replay-dead-letters.sh --replay` does the same for all of them at once.
 
 **Email.** Seconds after the replay, `신청 완료: 연결 확인` for `you+b@gmail.com`. A few minutes later, look for `skip ... (status issued)` in the logs.
 
@@ -506,11 +502,7 @@ Now fix it.
 **Check.** The first request takes seconds; the next ones under 0.1 s. Write both in the measurement table.
 
 **Pre-warm.**
-1. Create an event whose signups open in 20 minutes. It is the same as **새 행사 만들기** in the admin pages with **신청 시작** (Signups open) set 20 minutes ahead.
-
-   ```bash
-   ./lab event opening --opens-in 20
-   ```
+1. Create an event whose signups open in 10 minutes; pre-warm starts 15 minutes before an opening. The site → **관리** → **새 행사 만들기**: **행사 이름** `오픈 준비 확인`, **주소** `opening`, **장소** `온라인`, **신청 시작** (Signups open) 10 minutes from now, tick **공개** → **행사 만들기**.
 
 2. ☰ → **Cloud Scheduler** → tick the `housekeeping` row → **Force run**, so the job runs now instead of in up to 5 minutes.
 3. ☰ → **Cloud Run → Jobs** → `housekeeping` → **History** tab → the run you just started → logs.
@@ -528,10 +520,10 @@ Now fix it.
 **Where:** Cloud Shell, Console
 
 **Do.**
-1. Create an event that opens in 3 minutes (100 seats, waitlist 50) and start the load test right away. 300 visitors keep the event page open before the opening and press **신청하기** the moment it opens.
+1. The site → **관리** → **새 행사 만들기**: **행사 이름** `신청 몰림 A`, **주소** `rush-a`, **장소** `온라인`, **신청 시작** 3 minutes from now, **정원** (Seats) `100`, **대기 정원** (Waitlist) `50`, tick **공개** → **행사 만들기**.
+2. Start the load test right away. 300 visitors keep the event page open before the opening and press **신청하기** the moment it opens.
 
    ```bash
-   ./lab event rush-a --opens-in 3 --seats 100 --waitlist 50
    ./lab load rush-a
    ```
 
@@ -546,14 +538,14 @@ Now fix it.
 
 **Check.** Locust's `Signups:` line and response-time table, and `held` = `issued` = 100. Write them in the measurement table and take the screenshots (**Submit 6**). Because the event opens within minutes, pre-warm (Mission 10) may have started 3 instances already; look at how many more than 3 the graph shows.
 
-2. Measure again with another concurrency. `web` → **Containers** tab → **Maximum concurrent requests per instance** `2` → **Review changes and redeploy** → **Deploy changes**.
+3. Measure again with another concurrency. `web` → **Containers** tab → **Maximum concurrent requests per instance** `2` → **Review changes and redeploy** → **Deploy changes**.
+4. **새 행사 만들기** once more: **행사 이름** `신청 몰림 C`, **주소** `rush-c`, **신청 시작** 2 minutes from now, **정원** `100`, **대기 정원** `50`, tick **공개**. Then run it right away with 150 visitors.
 
    ```bash
-   ./lab event rush-c --opens-in 1 --seats 100 --waitlist 50
-   ./lab load rush-c --users 150 --minutes 3
+   ./lab load rush-c --users 150 --minutes 4
    ```
 
-3. When it ends, set concurrency back to `40`.
+5. When it ends, set concurrency back to `40`.
 
 **Predict.** With half the visitors, will there be more instances than the first time, or fewer?
 
@@ -574,13 +566,15 @@ Now fix it.
    ```
 
 3. Pause the lab.
+   - ☰ → **Cloud Scheduler** → tick the `housekeeping` row → **Pause**.
+   - Your repository → **Settings → Secrets and variables → Actions → Variables** → the pencil icon of `DEPLOY_ENABLED` → value `false` → **Update variable**.
+4. Run the checks and make the report for submission.
 
    ```bash
-   ./lab pause
    ./lab check --report
    ```
 
-**Why.** With no requests, the services scale to zero and cost nothing. The job runs every 5 minutes, 288 times a day, so it is paused. `./lab pause` also turns GitHub's `DEPLOY_ENABLED` off. The differences `./lab drift` shows are where the next session (Terraform) starts: Console changes are not in the code, and applying the code again (`./lab up`) removes them. Do not delete the project. Your instructor revokes the mail keys when the lab ends.
+**Why.** With no requests, the services scale to zero and cost nothing. The job runs every 5 minutes, 288 times a day, so it is paused. With deploys off, code pushed by mistake is not deployed. The differences `./lab drift` shows are where the next session (Terraform) starts: Console changes are not in the code, and applying the code again (`./lab up`) removes them. Do not delete the project. Your instructor revokes the mail keys when the lab ends.
 
 > **Optional:** the billing report (filtered by project, grouped by service)
 
@@ -667,11 +661,11 @@ All run from `~/gdgoc-tickets`.
 | `./lab iam` | Every account's permissions and why |
 | `./lab github` | Build the keyless sign-in; print the three variables to add on GitHub |
 | `./lab mail on`, `./lab mail off` | Turn real email on or off |
-| `./lab event ID [--opens-in MIN] [--seats N] [--waitlist N]` | Create a published event (same as **새 행사 만들기** in the admin pages) |
+| `./lab event ID [--opens-in MIN] [--seats N] [--waitlist N]` | (Optional) Create a published event. The lab uses **새 행사 만들기** in the admin pages |
 | `./lab load EVENT_ID [--users N] [--minutes M]` | Load test |
 | `./lab coldstart` | First-request and later-request times |
 | `./lab code` | An organizer's sign-in code (while email is off) |
 | `./lab check [NAME]`, `./lab check --report` | Checks and the report |
 | `./lab drift` | Differences between your Console changes and the code |
-| `./lab pause` | Pause the job and deploys |
+| `./lab pause` | (Optional) Mission 12's pause in one command |
 | `./lab down` | Delete everything the lab made |

@@ -172,9 +172,10 @@ resource "google_cloud_scheduler_job" "housekeeping" {
   schedule  = "*/5 * * * *"
   time_zone = "Asia/Seoul"
 
+  # The address the Console's "Add scheduler trigger" uses, so the job page's Triggers tab lists it
   http_target {
     http_method = "POST"
-    uri         = "https://run.googleapis.com/v2/projects/${var.project_id}/locations/${var.region}/jobs/${google_cloud_run_v2_job.housekeeping[0].name}:run"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.housekeeping[0].name}:run"
     oauth_token {
       service_account_email = local.sa_email["scheduler"]
     }
