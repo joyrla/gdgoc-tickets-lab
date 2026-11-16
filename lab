@@ -170,6 +170,12 @@ ROLE_TITLES = {
     "roles/run.developer": "Cloud Run Developer",
 }
 
+# A connection that failed for a moment: worth trying again, not a mistake to fix
+NETWORK_ERROR = re.compile(
+    r"connection refused|connection reset|i/o timeout|TLS handshake timeout|no such host|"
+    r"unexpected EOF|50[234] (Bad Gateway|Service Unavailable|Gateway Timeout)"
+)
+
 RETRYABLE = re.compile(
     r"not ready|retry in a few minutes|recently enabled|has not been used|SERVICE_DISABLED|"
     r"cannot assign requested address|connection reset|i/o timeout|TLS handshake timeout|Error 429|"
@@ -729,6 +735,8 @@ def wait_for_images(cloud: Cloud, builder: subprocess.Popen | None, minutes: int
             return
         if builder and builder.poll():
             tail = "\n".join(log.read_text().splitlines()[-15:]) if log.exists() else ""
+            if NETWORK_ERROR.search(tail):
+                die(f"The image build stopped on a network error:\n{tail}\nNothing to fix: run ./lab up again.")
             die(f"The image build stopped:\n{tail}\nFix what it says, then run ./lab up again.")
         waited = (time.monotonic() - started) / 60
         if waited > minutes:
@@ -782,8 +790,23 @@ def images() -> None:
         tag = f"{cloud.registry}/{name}:lab"
         print(f"building {tag}", flush=True)
         sh(["docker", "build", "--quiet", "--target", name, "-t", tag, "."], cwd=REPO)
-        sh(["docker", "push", "--quiet", tag])
+        push(tag)
     print("images ready", flush=True)
+
+
+def push(tag: str) -> None:
+    """docker push, tried again after a network error (a new registry, or Cloud Shell's network
+    for a moment, can refuse the connection or time out)."""
+    for attempt in range(1, 5):
+        done = subprocess.run(["docker", "push", "--quiet", tag], capture_output=True, text=True)
+        if done.returncode == 0:
+            print(done.stdout.strip(), flush=True)
+            return
+        error = (done.stderr or done.stdout or "").strip()
+        if attempt == 4 or not NETWORK_ERROR.search(error):
+            die(f"Stopped: docker push {tag} failed.\n{error}")
+        print(f"  the push hit a network error; trying again in 20 seconds ({attempt} of 3)", flush=True)
+        time.sleep(20)
 
 
 def need(ready: bool, message: str) -> None:

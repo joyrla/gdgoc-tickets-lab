@@ -457,6 +457,40 @@ def test_up_without_an_id_uses_the_cloud_shell_project_once_confirmed(lab, monke
     assert lab.chosen_project() == P
 
 
+def test_a_push_refused_for_a_moment_is_tried_again(lab, monkeypatch):
+    refused = (
+        'failed to do request: Head "https://asia-northeast3-docker.pkg.dev/v2/p/r/web/blobs/sha256:4": '
+        "dial tcp 108.177.97.82:443: connect: connection refused"
+    )
+    results = [(1, refused), (0, "sha256:b043")]
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        code, text = results.pop(0)
+        return subprocess.CompletedProcess(cmd, code, stdout=text if code == 0 else "", stderr=text if code else "")
+
+    monkeypatch.setattr(lab.subprocess, "run", fake_run)
+    monkeypatch.setattr(lab.time, "sleep", lambda seconds: None)
+    lab.push("asia-northeast3-docker.pkg.dev/p/gdgoc-tickets/web:lab")
+    assert len(calls) == 2
+
+
+def test_a_push_denied_is_not_tried_again(lab, monkeypatch):
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="denied: Permission 'artifactregistry.repositories.uploadArtifacts' denied"
+        )
+
+    monkeypatch.setattr(lab.subprocess, "run", fake_run)
+    with pytest.raises(SystemExit):
+        lab.push("asia-northeast3-docker.pkg.dev/p/gdgoc-tickets/web:lab")
+    assert len(calls) == 1
+
+
 def test_the_billing_message_shows_what_gcloud_said_when_it_fails(lab):
     class Failing(lab.Cloud):
         def gcloud(self, *args, project=True):
