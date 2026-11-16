@@ -254,7 +254,7 @@ git switch main && git push origin --delete try-branch
 
 **볼 곳.** **Actions** → 방금 실행(**CI/CD**) → `deploy` 작업의 단계. ☰ → **Cloud Run** → `web` → **업데이트 기록** 탭.
 
-**확인.** 5분쯤 뒤 모든 작업이 초록색이고, 사이트 홈에 바꾼 문장이 보입니다. `web`의 새 리비전이 100%입니다. `./lab check deploys`.
+**확인.** 7분쯤 뒤 모든 작업이 초록색이고, 사이트 홈에 바꾼 문장이 보입니다. `web`의 새 리비전이 100%입니다. `./lab check deploys`.
 
 **이유.** GitHub은 실행마다 짧게 유효한 토큰을 주고, 그 안에 저장소 ID와 브랜치가 들어 있습니다. Google Cloud는 속성 조건(내 저장소 ID, `main`)에 맞는 토큰만 받아 `tickets-deployer`의 짧은 토큰으로 바꿔 줍니다. 저장한 키가 없으니 샐 키도, 바꿀 키도 없습니다. 같은 저장소라도 `main`이 아니면 거부되고, 다른 사람의 저장소는 ID가 달라 거부됩니다. 변수 세 개는 어디로 로그인할지만 알려 줍니다.
 

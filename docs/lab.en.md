@@ -253,7 +253,7 @@ git switch main && git push origin --delete try-branch
 
 **Where to look.** **Actions** → the new run (**CI/CD**) → the steps of the `deploy` job. ☰ → **Cloud Run** → `web` → **Revisions** tab.
 
-**Check.** About 5 minutes later every job is green and the site's home page shows your sentence. `web`'s new revision has 100%. `./lab check deploys`.
+**Check.** About 7 minutes later every job is green and the site's home page shows your sentence. `web`'s new revision has 100%. `./lab check deploys`.
 
 **Why.** For every run GitHub issues a short-lived token that contains the repository ID and the branch. Google Cloud accepts only tokens that match the attribute condition (your repository ID, `main`) and exchanges them for a short-lived `tickets-deployer` token. With no stored key, there is no key to leak or rotate. The same repository on another branch is refused, and someone else's repository has another ID. The three variables only say where to sign in.
 
