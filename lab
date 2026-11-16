@@ -7,7 +7,7 @@ docs/lab.ko.md says when to use each.
   ./lab event ID [--opens-in MINUTES] [--seats N] [--waitlist N] [--title TEXT]   create a published event
   ./lab load EVENT_ID [--users N] [--minutes M]   load test: visitors rush the event's opening
   ./lab coldstart              time the first request to web, then five more
-  ./lab github                 your copy on GitHub, keyless sign-in, the sign-in test
+  ./lab github                 keyless sign-in for your copy; prints the three GitHub variables to add
   ./lab mail on|off            turn real email on or off
   ./lab code                   your latest sign-in code, from the logs (while email is off)
   ./lab check [NAME ...]       check what is built (every check without NAME)
@@ -359,11 +359,18 @@ def made_from_template(repo: str) -> bool:
     return (gh("api", f"repos/{repo}", "-q", ".template_repository.full_name") or "").lower() == TEMPLATE.lower()
 
 
+def folder_repo() -> str | None:
+    """The GitHub repository this folder was cloned from (OWNER/NAME), wherever ./lab is run from."""
+    done = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                          capture_output=True, text=True, cwd=REPO, stdin=subprocess.DEVNULL)  # fmt: skip
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
 def own_repo() -> str | None:
     """The student's copy: LAB_REPO if set, else this folder's origin, else USER/gdgoc-tickets.
     Only a repository GitHub says was made from the template counts, so ./lab never sets
     variables on, or turns off deploys of, some other repository with the same name."""
-    candidates = [os.environ.get("LAB_REPO"), gh("repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner")]
+    candidates = [os.environ.get("LAB_REPO"), folder_repo()]
     login = gh("api", "user", "-q", ".login")
     if login:
         candidates.append(f"{login}/{COPY_NAME}")
@@ -731,7 +738,7 @@ def up(project: str) -> None:
     print("\nBuilt, from the code in infra/:")
     for part in read_tfvars()["lab_parts"]:
         print(f"  {part:<9} {PART_BUILT[part]}")
-    print("\nNext: make an event with ./lab event ID and sign up on your site.")
+    print("\nNext: Part 2 of the sheet, connecting GitHub (./lab github) and email.")
     web = cloud.run_api("services/web") or {}
     print(f"Your site: {web.get('uri') or cloud.url('web')}")
 
@@ -1569,18 +1576,18 @@ def check_warmup(c: Cloud, r: Result) -> None:
 def check_repo(c: Cloud, r: Result) -> None:
     repo = own_repo()
     if not repo:
-        raise NotBuilt("no copy made from the template yet (step 14), or this folder isn't it")
+        raise NotBuilt("no copy made with Use this template yet, or this folder isn't it")
     info = json.loads(gh("api", f"repos/{repo}") or "{}")
     r.ok(f"your copy: {repo} (ID {info.get('id')}), made from {TEMPLATE}")
     r.expect(info.get("private") is True, "private", "the repository is public; make it private (Settings → General)")
     r.expect(not info.get("fork"), "a copy, not a fork", "this is a fork; use the template (Use this template) instead")
     actions = json.loads(gh("api", f"repos/{repo}/actions/permissions") or "{}")
     r.expect(actions.get("enabled") is True, "Actions on", "Actions is off: Settings → Actions → General")
-    origin = sh(["git", "remote", "get-url", "origin"], capture=True, check=False).strip()
+    origin = sh(["git", "remote", "get-url", "origin"], capture=True, check=False, cwd=REPO).strip()
     r.expect(
         repo.lower() in origin.lower(),
         "this folder is your copy",
-        f"this folder's origin is {origin}; cd ~/gdgoc-tickets (your copy, made by ./lab github)",
+        f"this folder's origin is {origin}; clone your copy and work there: gh repo clone {repo}",
     )
 
 
@@ -1974,11 +1981,43 @@ def sign_in_test(repo: str) -> tuple[bool, str]:
 
 
 def github() -> None:
+    """Keyless sign-in for the student's copy (trust and deployer), then the three values
+    the student adds to the copy by hand. The sign-in test and the first deploy are theirs too."""
     cloud = cloud_from_settings()
-    need(bool(cloud.run_api("services/ticket-worker")), "Build the lab first: ./lab up PROJECT_ID")
+    need(bool(cloud.run_api("services/web")), "Build the lab first: ./lab up PROJECT_ID")
     github_login()
-    skip_repo()
-    skip_trust(cloud)
+    repo = folder_repo()
+    if not repo or repo.lower() == TEMPLATE.lower() or not made_from_template(repo):
+        die(
+            f"This folder is {repo or 'not a GitHub clone'}, not your own copy.\n"
+            f"  1. github.com/{TEMPLATE} → Use this template → Create a new repository,\n"
+            f"     owner: your account, name: {COPY_NAME}, Private.\n"
+            f"  2. In Cloud Shell: cd ~ && gh repo clone YOUR_GITHUB_ID/{COPY_NAME} && cd {COPY_NAME}\n"
+            "  3. ./lab github again, from there."
+        )
+    repo_id = gh("api", f"repos/{repo}", "-q", ".id") or die(f"Could not read {repo} on GitHub.")
+    values = settings()
+    values["github_repo_id"] = repo_id
+    write_tfvars(values)
+    print(f"Building keyless sign-in for {repo} with Terraform (about a minute).")
+    apply(cloud, SKIPS[15])
+    print()
+    print(f"Built: GitHub Actions runs of {repo} (repository ID {repo_id}), on main only,")
+    print("may sign in as tickets-deployer. No key is made or stored.")
+    print()
+    print("Now add three variables to your repository, by hand:")
+    print(f"  github.com/{repo} → Settings → Secrets and variables → Actions → Variables tab")
+    print("  → New repository variable, once for each:")
+    print()
+    for name, value in (
+        ("GCP_PROJECT_ID", cloud.project),
+        ("WIF_PROVIDER", cloud.provider),
+        ("DEPLOYER_SA", cloud.sa("deployer")),
+    ):
+        print(f"  {name:<15} {value}")
+    print()
+    print("Then wait two minutes (the new permission takes that long to reach every Google server)")
+    print("and run the test: Actions → Sign-in test → Run workflow. Check it: ./lab check github")
 
 
 def secret_has_value(cloud: Cloud, name: str) -> bool:
@@ -2007,6 +2046,10 @@ def mail(switch: str) -> None:
     if switch == "on":
         print("Email is on: MAIL_BACKEND=smtp, and ticket-worker reads smtp-password and mail-from.")
         print("Addresses at test domains (example.com, .test, ...) are never sent to. Check it: ./lab check mail")
+        web = cloud.run_api("services/web") or {}
+        print(
+            f"Try it: {web.get('uri') or cloud.url('web')}/login, sign in with {cloud.admin}; the code arrives by email."
+        )
     else:
         print("Email is off: MAIL_BACKEND=log. Nothing is sent; organizer sign-in codes go to the logs (./lab code).")
 

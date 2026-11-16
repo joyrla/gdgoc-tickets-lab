@@ -8,17 +8,17 @@ Below are the moments one event goes through. For each one, read what goes wrong
 
 | Moment | Problem | What it needs | Lab missions |
 |---|---|---|---|
-| 1. Signups open | Hundreds in one second. One server can't take it; enough servers for the peak sit idle and cost money all day | Servers that add copies under load and go to zero without it: **Cloud Run autoscaling** | 0, 8 |
-| 2. Copies come and go | Each copy has its own memory and can disappear at any time. A seat count kept in a server is wrong or lost | Servers that remember nothing, data outside: **Firestore, Cloud Storage** | 2, 6 |
-| 3. The last seat | Two people read "1 seat left" at the same moment and both save | Read, check and save as one step: **a transaction** | 8 |
-| 4. Right after a signup | Making the QR and sending email are slow and can fail. If the reply waits for them, everyone waits | Hand the work over as a message and reply at once: **Pub/Sub, asynchronous processing** | 2, 3 |
-| 5. A ticket fails | A message fails, or arrives twice | Retry with growing waits, handle a repeat once, set aside what keeps failing: **retry, idempotency, dead letter** | 4 |
-| 6. A cancellation | Seats free up in several places (the person, an admin, the deadline) | React to the data change itself: **Eventarc, event-driven** | 5 |
-| 7. The confirmation deadline | Work nobody clicks for | A run at set times that does its work and exits: **Cloud Scheduler, a Cloud Run job** | 7 |
-| 8. 15 minutes before opening | Scaled to zero, the first person waits for a server to start (cold start) | Start copies early when the opening time is known: **minimum instances, pre-warming** | 7 |
-| 9. Parts calling parts | One broken part opens everything | Each part its own identity and only the permissions it needs: **service accounts, least privilege, ingress, Secret Manager** | 1, 3, 10 |
-| 10. Changing the code | A deploy stops the site, or a key leaks | Automatic checks, a new version at 0% first, sign-in without keys: **GitHub Actions, Workload Identity Federation, revisions, rollback** | 6, 9 |
-| 11. Something looks wrong | Too many parts to know where | The same code in every log, numbers over time: **Cloud Logging, Cloud Monitoring** | 2, 4 |
+| 1. Signups open | Hundreds in one second. One server can't take it; enough servers for the peak sit idle and cost money all day | Servers that add copies under load and go to zero without it: **Cloud Run autoscaling** | 0, 11 |
+| 2. Copies come and go | Each copy has its own memory and can disappear at any time. A seat count kept in a server is wrong or lost | Servers that remember nothing, data outside: **Firestore, Cloud Storage** | 4, 8 |
+| 3. The last seat | Two people read "1 seat left" at the same moment and both save | Read, check and save as one step: **a transaction** | 11 |
+| 4. Right after a signup | Making the QR and sending email are slow and can fail. If the reply waits for them, everyone waits | Hand the work over as a message and reply at once: **Pub/Sub, asynchronous processing** | 4, 5 |
+| 5. A ticket fails | A message fails, or arrives twice | Retry with growing waits, handle a repeat once, set aside what keeps failing: **retry, idempotency, dead letter** | 6 |
+| 6. A cancellation | Seats free up in several places (the person, an admin, the deadline) | React to the data change itself: **Eventarc, event-driven** | 7 |
+| 7. The confirmation deadline | Work nobody clicks for | A run at set times that does its work and exits: **Cloud Scheduler, a Cloud Run job** | 10 |
+| 8. 15 minutes before opening | Scaled to zero, the first person waits for a server to start (cold start) | Start copies early when the opening time is known: **minimum instances, pre-warming** | 10 |
+| 9. Parts calling parts | One broken part opens everything | Each part its own identity and only the permissions it needs: **service accounts, least privilege, ingress, Secret Manager** | 1, 3, 5 |
+| 10. Changing the code | A deploy stops the site, or a key leaks | Automatic checks, a new version at 0% first, sign-in without keys: **GitHub Actions, Workload Identity Federation, revisions, rollback** | 2, 8, 9 |
+| 11. Something looks wrong | Too many parts to know where | The same code in every log, numbers over time: **Cloud Logging, Cloud Monitoring** | 4, 6 |
 
 ## Questions to answer
 

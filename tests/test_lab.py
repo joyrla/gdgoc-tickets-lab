@@ -397,6 +397,47 @@ def test_up_keeps_github_parts_once_built(lab):
     assert lab.up_parts(values, make_cloud(lab)) == lab.PARTS
 
 
+def github_cloud(lab, monkeypatch, folder):
+    """./lab github with a built web, the folder cloned from FOLDER, and every gh call recorded."""
+    cloud = make_cloud(lab, api={"services/web": {"uri": "https://web"}})
+    cloud._number = N
+    calls, applied = [], []
+
+    def fake_gh(*args):
+        calls.append(args)
+        return "987654" if args[:2] == ("api", "repos/student/gdgoc-tickets") else None
+
+    lab.write_tfvars({"project_id": P, "github_repo_id": "0", "lab_parts": list(lab.UP_PARTS)})
+    monkeypatch.setattr(lab, "cloud_from_settings", lambda: cloud)
+    monkeypatch.setattr(lab, "github_login", lambda: None)
+    monkeypatch.setattr(lab, "folder_repo", lambda: folder)
+    monkeypatch.setattr(lab, "made_from_template", lambda repo: repo == "student/gdgoc-tickets")
+    monkeypatch.setattr(lab, "gh", fake_gh)
+    monkeypatch.setattr(lab, "apply", lambda cloud, parts: applied.append(parts))
+    return calls, applied
+
+
+def test_github_builds_the_trust_and_leaves_the_variables_and_the_test_to_the_student(lab, monkeypatch, capsys):
+    calls, applied = github_cloud(lab, monkeypatch, "student/gdgoc-tickets")
+    lab.github()
+    assert lab.read_tfvars()["github_repo_id"] == "987654"
+    assert applied == [lab.SKIPS[15]] and {"trust", "deployer"} <= set(applied[0])
+    printed = capsys.readouterr().out
+    for line in (f"GCP_PROJECT_ID  {P}", f"DEPLOYER_SA     {sa('deployer')}", "WIF_PROVIDER    projects/"):
+        assert line in printed
+    assert "Run workflow" in printed
+    # The student adds the variables and runs the sign-in test; ./lab does neither
+    assert not [c for c in calls if c[:2] in (("variable", "set"), ("workflow", "run"))]
+
+
+@pytest.mark.parametrize("folder", ["joyrla/gdgoc-tickets-lab", "someone/other", None])
+def test_github_outside_the_students_copy_says_how_to_make_one(lab, monkeypatch, folder):
+    _, applied = github_cloud(lab, monkeypatch, folder)
+    with pytest.raises(SystemExit):
+        lab.github()
+    assert applied == [] and lab.read_tfvars()["github_repo_id"] == "0"
+
+
 def test_the_billing_message_shows_what_gcloud_said_when_it_fails(lab):
     class Failing(lab.Cloud):
         def gcloud(self, *args, project=True):
