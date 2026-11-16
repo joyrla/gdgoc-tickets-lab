@@ -38,6 +38,10 @@ run "production_builds_everything" {
     condition     = length(google_pubsub_subscription.ticket_worker[0].push_config) == 1
     error_message = "Production's ticket-worker subscription should push."
   }
+  assert {
+    condition     = google_pubsub_subscription.dead_letter[0].ack_deadline_seconds == 60
+    error_message = "A pulled but unacked dead letter should come back within a minute."
+  }
 }
 
 run "lab_start" {

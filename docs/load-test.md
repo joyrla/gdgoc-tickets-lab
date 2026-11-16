@@ -8,7 +8,7 @@
 
 ## 1. 설정
 
-`infra/terraform.tfvars`에 다음 두 줄을 넣고 `terraform apply`를 실행합니다. [실습](lab.ko.md)에서는 같은 값을 콘솔에서 환경 변수로 바꿉니다.
+`infra/terraform.tfvars`에 다음 두 줄을 넣고 `terraform apply`를 실행합니다. [실습](lab.ko.md)에서는 `./lab up`이 같은 값을 넣어 두므로 따로 할 일이 없습니다.
 
 ```hcl
 signups_per_minute_per_ip = 5000   # 모든 신청이 Cloud Shell 주소 하나에서 나가므로

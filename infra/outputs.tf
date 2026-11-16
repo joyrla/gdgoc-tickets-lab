@@ -1,14 +1,17 @@
 output "web_url" {
-  value = try(google_cloud_run_v2_service.svc["web"].uri, local.web_url)
+  description = "Public address of the web service"
+  value       = try(google_cloud_run_v2_service.svc["web"].uri, local.web_url)
 }
 
 output "image_registry" {
-  value = local.registry
+  description = "Artifact Registry path that CI pushes the four images to"
+  value       = local.registry
 }
 
 # Paste into GitHub: Settings → Secrets and variables → Actions → Variables.
 # In the lab, students build the trust by hand, and ./lab env github prints these from it.
 output "github_variables" {
+  description = "GitHub Actions variables for keyless deploys (connect-github.sh sets them). None are secret"
   value = merge(
     {
       GCP_PROJECT_ID = var.project_id
@@ -24,5 +27,6 @@ output "github_variables" {
 }
 
 output "web_service_name" {
-  value = var.web_service_name
+  description = "Name of the web Cloud Run service"
+  value       = var.web_service_name
 }

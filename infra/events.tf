@@ -25,7 +25,9 @@ resource "google_pubsub_subscription" "dead_letter" {
   name                       = "dead-letter"
   topic                      = google_pubsub_topic.dead_letter[0].id
   message_retention_duration = "604800s" # keep a week to inspect
-  ack_deadline_seconds       = 600       # a replay takes two commands per message (scripts/replay-dead-letters.sh)
+  # A pull that is not acked hides the message for this long, so a Console "Pull" without
+  # ack would hide it from scripts/replay-dead-letters.sh. That script acks within seconds.
+  ack_deadline_seconds = 60
 
   # By default Pub/Sub deletes a subscription after 31 days without activity,
   # and messages published after that are lost with no error

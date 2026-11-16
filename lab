@@ -2,35 +2,44 @@
 """Shortcuts and checks for the Cloud Ticketing lab, run in Cloud Shell from the lab's folder.
 docs/lab.ko.md says when to use each.
 
-  ./lab start PROJECT_ID     step 1: tools, GitHub sign-in, APIs, image registry, the first images
-  ./lab base                 step 3: expiry rules, index, bucket, service accounts, secrets
-  ./lab iam                  step 3: who may do what, by service account
-  ./lab env [web|job|github] values to paste into the Console and GitHub
-  ./lab workers              step 6: ticket-worker, waitlist-promoter, mailer and their grants
-  ./lab code                 your latest sign-in code, from the logs
-  ./lab warmup               step 13: pre-warming's custom role and act-as
-  ./lab deployer             step 15: the deployer's three roles
-  ./lab check [STEP ...]     check what you built (every step so far without STEP)
-  ./lab check --report       every step, saved to ~/lab-report.txt for submission
-  ./lab skip STEP            build a hand step for you; the report shows it as skipped
-  ./lab pause                step 26: pause the Scheduler, turn off deploys
-  ./lab down                 delete everything the lab made in Google Cloud
+  ./lab up PROJECT_ID          build the whole lab; run it again to put back the code's settings
+  ./lab iam                    who may do what, by service account
+  ./lab event ID [--opens-in MINUTES] [--seats N] [--waitlist N] [--title TEXT]   create a published event
+  ./lab load EVENT_ID [--users N] [--minutes M]   load test: visitors rush the event's opening
+  ./lab coldstart              time the first request to web, then five more
+  ./lab github                 your copy on GitHub, keyless sign-in, the sign-in test
+  ./lab mail on|off            turn real email on or off
+  ./lab code                   your latest sign-in code, from the logs (while email is off)
+  ./lab check [NAME ...]       check what is built (every check without NAME)
+  ./lab check --report         every check, saved to ~/lab-report.txt for submission
+  ./lab drift                  what differs between the live project and the code
+  ./lab pause                  pause the Scheduler, turn off deploys
+  ./lab down                   delete everything the lab made in Google Cloud
+  one part at a time, as in the hand-built lab:
+  ./lab start PROJECT_ID       tools, GitHub sign-in, APIs, image registry, the first images
+  ./lab images                 build and push the four images (start and up run it)
+  ./lab base|workers|warmup|deployer   build that part
+  ./lab env [web|job|github]   values to paste into the Console and GitHub
+  ./lab skip STEP              build a hand step for you; the report shows it as skipped
 
-Shortcuts build their part with Terraform (infra/lab.tf). Each creates only what is
-missing: a piece you already made by hand in the Console is taken over, not made twice.
-The lab's settings live in ~/.gdgoc-lab, so any clone of the repository can use them.
+Everything is built with Terraform parts (infra/lab.tf). A piece already made by hand in
+the Console is taken over, not made twice. The lab's settings live in ~/.gdgoc-lab, so
+any clone of the repository can use them.
 """
 
+import argparse
 import json
 import os
 import platform
 import re
+import statistics
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
@@ -69,7 +78,29 @@ PARTS = [
     "deployer",
 ]
 SECRETS = ["ticket-secret", "session-secret", "smtp-password", "mail-from"]
+MAIL_SECRETS = {"smtp-password": "the email provider's key", "mail-from": "the sender address"}
 TTL_GROUPS = ["registrations", "codes", "emails", "login_codes", "sent_emails"]
+
+# What ./lab up builds. Not push: students switch ticket-worker's subscription to Push by hand.
+# Not trust and deployer: ./lab github adds them.
+UP_PARTS = ["start", "database", "base", "topics", "web", "workers", "eventarc", "schedule", "warmup"]
+PART_BUILT = {
+    "start": "APIs, the image registry gdgoc-tickets and the four images",
+    "database": "the Firestore database (default)",
+    "base": "expiry rules, the waitlist index, the bucket, 8 service accounts, 4 secrets",
+    "topics": "topics registrations, emails, dead-letter and the subscriptions ticket-worker, dead-letter",
+    "web": "the web service, public, running as tickets-web",
+    "workers": "ticket-worker and waitlist-promoter (internal only), the mailer subscription",
+    "push": "ticket-worker's subscription pushes to ticket-worker (your setting, kept)",
+    "eventarc": "the trigger registration-changed: a changed registration goes to waitlist-promoter",
+    "schedule": "the housekeeping job, started every 5 minutes by Cloud Scheduler",
+    "warmup": "the custom role webScaler, so housekeeping may pre-warm web",
+    "trust": "keyless sign-in from your GitHub repository",
+    "deployer": "tickets-deployer may push images and deploy",
+}
+
+KST = timezone(timedelta(hours=9))  # event times are Korea time, written as +09:00
+EVENT_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,39}$")  # the admin form's rule (web/admin.py)
 
 # Each shortcut's part, the earlier shortcuts it builds on, and what it prints when done
 SHORTCUTS = {
@@ -124,24 +155,6 @@ SKIPS = {
     15: ["start", "base", "workers", "warmup", "trust", "deployer"],
 }
 
-STEP_NAMES = {
-    0: "Project, billing, budget",
-    1: "./lab start: APIs, image registry, images",
-    2: "Firestore database",
-    3: "./lab base",
-    4: "Topics and subscriptions",
-    5: "web service",
-    6: "./lab workers",
-    8: "Push delivery to ticket-worker",
-    11: "Eventarc trigger",
-    12: "housekeeping job and Cloud Scheduler",
-    13: "./lab warmup",
-    14: "Your copy on GitHub",
-    15: "Keyless sign-in from GitHub Actions",
-    16: "Deploys from GitHub Actions",
-    26: "Scheduler paused",
-}
-
 ROLE_TITLES = {
     "roles/datastore.user": "Cloud Datastore User",
     "roles/secretmanager.secretAccessor": "Secret Manager Secret Accessor",
@@ -158,7 +171,8 @@ ROLE_TITLES = {
 
 RETRYABLE = re.compile(
     r"not ready|retry in a few minutes|recently enabled|has not been used|SERVICE_DISABLED|"
-    r"cannot assign requested address|connection reset|i/o timeout|TLS handshake timeout|Error 429"
+    r"cannot assign requested address|connection reset|i/o timeout|TLS handshake timeout|Error 429|"
+    r"permissions are propagated|Eventarc Service Agent"  # in a project that just turned Eventarc on
 )
 
 
@@ -224,14 +238,39 @@ class Cloud:
         self.project, self.region, self.admin = project, region, admin
         self._number = None
         self._token = None
+        self.error = ""  # what gcloud said when the last command failed
 
     def gcloud(self, *args, project: bool = True):
         """gcloud's JSON answer, or None if the command failed (usually: it doesn't exist)."""
         cmd = ["gcloud", *args, "--format=json", "--quiet"] + (["--project", self.project] if project else [])
         done = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
         if done.returncode:
+            self.error = (done.stderr or "").strip()
             return None
         return json.loads(done.stdout or "null")
+
+    @property
+    def token(self) -> str:
+        if self._token is None:
+            self._token = sh(["gcloud", "auth", "print-access-token"], capture=True).strip()
+        return self._token
+
+    def post(self, url: str, body: dict) -> tuple[int, dict]:
+        """POST to a Google API with the gcloud login: (HTTP status, the answer)."""
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode(),
+            method="POST",
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as answer:
+                return answer.status, json.load(answer)
+        except urllib.error.HTTPError as error:
+            try:
+                return error.code, json.load(error)
+            except ValueError:
+                return error.code, {}
 
     def exists(self, *args) -> bool:
         return self.gcloud(*args) is not None
@@ -245,9 +284,7 @@ class Cloud:
 
     def api(self, url: str):
         """GET a Google API with the gcloud login. None for 404."""
-        if self._token is None:
-            self._token = sh(["gcloud", "auth", "print-access-token"], capture=True).strip()
-        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self._token}"})
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
         try:
             with urllib.request.urlopen(request, timeout=30) as answer:
                 return json.load(answer)
@@ -486,16 +523,45 @@ def adopt(cloud: Cloud, parts: list, env: dict) -> None:
                 die(f"Could not take over {address}:\n{done.stdout[-1500:]}{done.stderr[-1500:]}")
 
 
+def worker_urls(cloud: Cloud) -> set:
+    """Both addresses of ticket-worker: the one with the project number, and the older one."""
+    worker = cloud.run_api("services/ticket-worker") or {}
+    return {u.rstrip("/") for u in [worker.get("uri", ""), *worker.get("urls", []), cloud.url("ticket-worker")] if u}
+
+
+def push_state(cloud: Cloud) -> str:
+    """ticket-worker's subscription: "pull" (or not there), "set" when it pushes to ticket-worker
+    signed as tickets-pubsub-push, "wrong" when it pushes some other way."""
+    push = (cloud.gcloud("pubsub", "subscriptions", "describe", "ticket-worker") or {}).get("pushConfig", {})
+    if not push.get("pushEndpoint"):
+        return "pull"
+    signer = push.get("oidcToken", {}).get("serviceAccountEmail", "")
+    right = push["pushEndpoint"].rstrip("/") in worker_urls(cloud) and signer == cloud.sa("pubsub-push")
+    return "set" if right else "wrong"
+
+
+def up_parts(values: dict, cloud: Cloud) -> list:
+    """What ./lab up applies: UP_PARTS, push when the student already switched to Push, and
+    every part already on (trust and deployer once ./lab github ran)."""
+    return add_parts(values, UP_PARTS + (["push"] if push_state(cloud) == "set" else []))
+
+
 def apply(cloud: Cloud, parts: list) -> None:
     """Turn these parts on in terraform.tfvars, take over what exists, and apply."""
     values = settings()
     parts = add_parts(values, parts)
-    # A subscription Terraform owns (step 4 skipped) that the student switched to Push by
-    # hand (step 8) stays Push: Terraform takes the change over instead of undoing it
+    # A subscription Terraform owns that the student switched to Push by hand stays Push:
+    # Terraform takes the change over instead of undoing it. Only a finished switch counts
+    # (ticket-worker's URL, signed as tickets-pubsub-push), so Terraform never completes it for them.
     if "topics" in parts and "push" not in parts:
-        found = cloud.gcloud("pubsub", "subscriptions", "describe", "ticket-worker") or {}
-        if found.get("pushConfig", {}).get("pushEndpoint"):
+        state = push_state(cloud)
+        if state == "set":
             parts = add_parts(values, parts + ["push"])
+        elif state == "wrong":
+            print(
+                "  ticket-worker's subscription pushes, but not to ticket-worker signed as tickets-pubsub-push.\n"
+                "  Terraform sets it back to Pull; switch it to Push again in the Console (./lab check push)."
+            )
     values["lab_parts"] = parts
     write_tfvars(values)
     env = terraform_env()
@@ -538,7 +604,24 @@ def has(tool: str) -> bool:
     return subprocess.run(["which", tool], capture_output=True).returncode == 0
 
 
-def start(project: str) -> None:
+def billing_problem(cloud: Cloud) -> str:
+    """Why the project can't run the lab yet, or "" when its billing is fine."""
+    billing = cloud.gcloud("billing", "projects", "describe", cloud.project, project=False)
+    if billing is None:
+        said = "\n".join(cloud.error.splitlines()[-6:]) or "(nothing)"
+        return f"Could not read the billing of project {cloud.project}. gcloud said:\n{said}"
+    if not billing.get("billingEnabled"):
+        return (
+            f"Project {cloud.project} has no billing account linked. Link one: ☰ → Billing → Link a billing account."
+        )
+    return ""
+
+
+def prepare(project: str) -> tuple[Cloud, dict]:
+    """What start and up share: tools, the gcloud sign-in, the project and its billing, the settings."""
+    values = read_tfvars()
+    if values.get("project_id") and values["project_id"] != project:
+        die(f"The lab is set up for {values['project_id']}. To start over in {project}: ./lab down first.")
     tools()
     account = sh(["gcloud", "config", "get-value", "account"], capture=True, check=False).strip()
     if not account:
@@ -546,68 +629,119 @@ def start(project: str) -> None:
     cloud = Cloud(project)
     if not cloud.gcloud("projects", "describe", project, project=False):
         die(f"{account} cannot see project {project}. Check the ID in the Console's project picker.")
-    billing = cloud.gcloud("billing", "projects", "describe", project, project=False) or {}
-    if not billing.get("billingEnabled"):
-        die(f"Project {project} has no billing account linked. Link one under Billing in the Console (step 0).")
+    problem = billing_problem(cloud)
+    if problem:
+        die(problem)
     sh(["gcloud", "config", "set", "project", project, "--quiet"], capture=True)
-
-    values = read_tfvars()
-    if values.get("project_id") and values["project_id"] != project:
-        die(f"The lab is set up for {values['project_id']}. To start over in {project}: ./lab down first.")
     if not values:
         values = {
             "project_id": project,
-            "github_repo_id": "0",  # your copy's ID, set in step 15
+            "github_repo_id": "0",  # your copy's ID, set by ./lab github
             "admin_emails": [account],
             "lab_image_tag": "lab",
             "lab_parts": ["start"],
         }
         write_tfvars(values)
-
     # Cloud Shell starts with no git identity, and git commit refuses to run without one
     for key, value in (("user.email", account), ("user.name", account.split("@")[0])):
         if subprocess.run(["git", "config", "--global", key], capture_output=True).returncode:
             sh(["git", "config", "--global", key, value])
+    return cloud, values
+
+
+def github_login() -> None:
     if subprocess.run(["gh", "auth", "status"], capture_output=True).returncode:
-        sh(
-            [
-                "gh",
-                "auth",
-                "login",
-                "--hostname",
-                "github.com",
-                "--git-protocol",
-                "https",
-                "--web",
-                "--scopes",
-                "workflow",
-            ]
-        )
+        sh(["gh", "auth", "login", "--hostname", "github.com", "--git-protocol", "https", "--web"]
+           + ["--scopes", "workflow"])  # fmt: skip
     sh(["gh", "auth", "setup-git"], check=False)
 
+
+def start(project: str) -> None:
+    cloud, _ = prepare(project)
+    github_login()
     print("Turning on the APIs and creating the image registry. This takes about 3 minutes.")
     apply(cloud, ["start"])
-    if images_ready(cloud):
-        print("The images are already in the registry.")
-    else:
-        log = HOME / "images.log"
-        with open(log, "w") as out:
-            subprocess.Popen(
-                [sys.executable, __file__, "images"],
-                cwd=REPO,
-                stdout=out,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-        print(f"Building the four images in the background (about 5 minutes; progress: tail -f {log}).")
+    eventarc_agent(cloud)
+    build_images(cloud)
     print()
     print("Done. Next: step 2, the Firestore database, in the Console.")
 
 
+def eventarc_agent(cloud: Cloud) -> None:
+    """Make Eventarc's service agent now, so it has its role by the time the trigger is built."""
+    sh(["gcloud", "beta", "services", "identity", "create", "--service=eventarc.googleapis.com",
+        f"--project={cloud.project}", "--quiet"], capture=True, check=False)  # fmt: skip
+
+
+def build_images(cloud: Cloud) -> subprocess.Popen | None:
+    """Build the four images in the background, unless they are in the registry already."""
+    if images_ready(cloud):
+        print("The images are already in the registry.")
+        return None
+    log = HOME / "images.log"
+    with open(log, "w") as out:
+        builder = subprocess.Popen(
+            [sys.executable, __file__, "images"],
+            cwd=REPO,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    print(f"Building the four images in the background (about 5 minutes; progress: tail -f {log}).")
+    return builder
+
+
+def wait_for_images(cloud: Cloud, builder: subprocess.Popen | None, minutes: int = 25) -> None:
+    log = HOME / "images.log"
+    started = time.monotonic()
+    while True:
+        ready = [name for name in IMAGES if image_ready(cloud, name)]
+        if len(ready) == len(IMAGES):
+            print("The four images are ready.")
+            return
+        if builder and builder.poll():
+            tail = "\n".join(log.read_text().splitlines()[-15:]) if log.exists() else ""
+            die(f"The image build stopped:\n{tail}\nFix what it says, then run ./lab up again.")
+        waited = (time.monotonic() - started) / 60
+        if waited > minutes:
+            die(f"The images are not ready after {minutes} minutes. Read {log}, run ./lab images, then ./lab up again.")
+        print(f"  waiting for the images: {len(ready)} of {len(IMAGES)} ready, {waited:.0f} min so far", flush=True)
+        time.sleep(30)
+
+
+def up(project: str) -> None:
+    cloud, values = prepare(project)
+    print("Building the whole lab with Terraform: 20 to 25 minutes the first time, a few minutes after that.")
+    print("Safe to run again: a rerun puts every setting you changed in the Console back to the code's settings.")
+    if "web" not in values.get("lab_parts", []):
+        # First build. Every load-test visitor comes from one Cloud Shell address, and web allows
+        # 100 signups a minute per address by default; 2 seconds more per ticket keeps the
+        # ticket-worker queue long enough to watch (docs/load-test.md). Kept on reruns.
+        values.setdefault("signups_per_minute_per_ip", 5000)
+        values.setdefault("worker_delay_ms", 2000)
+        write_tfvars(values)
+    if not images_ready(cloud):
+        print("\nTurning on the APIs and creating the image registry (about 3 minutes).")
+        apply(cloud, ["start"])
+        eventarc_agent(cloud)
+        wait_for_images(cloud, build_images(cloud))
+    parts = up_parts(read_tfvars(), cloud)
+    print(f"\nApplying {len(parts)} parts (Terraform takes over anything already made by hand).")
+    apply(cloud, parts)
+    print("\nBuilt, from the code in infra/:")
+    for part in read_tfvars()["lab_parts"]:
+        print(f"  {part:<9} {PART_BUILT[part]}")
+    print("\nNext: make an event with ./lab event ID and sign up on your site.")
+    web = cloud.run_api("services/web") or {}
+    print(f"Your site: {web.get('uri') or cloud.url('web')}")
+
+
+def image_ready(cloud: Cloud, name: str) -> bool:
+    return cloud.exists("artifacts", "docker", "images", "describe", f"{cloud.registry}/{name}:lab")
+
+
 def images_ready(cloud: Cloud) -> bool:
-    return all(
-        cloud.exists("artifacts", "docker", "images", "describe", f"{cloud.registry}/{name}:lab") for name in IMAGES
-    )
+    return all(image_ready(cloud, name) for name in IMAGES)
 
 
 def images() -> None:
@@ -740,6 +874,180 @@ def code() -> None:
     if not found:
         die("No code in the last hour. Ask for one on /login, wait 30 seconds, then run this again.")
     print(found[0].get("jsonPayload", {}).get("message", ""))
+
+
+# ---------------------------------------------------------------- commands: events, load, cold start
+
+
+def event_document(
+    event_id: str, now: datetime, opens_in: int | None = None, seats: int = 200, waitlist: int = 50, title: str = ""
+) -> tuple[dict, list]:
+    """The events/ document for ./lab event, with the fields of shared/models.Event, and what is
+    wrong with it (the admin form's rules, web/admin.py). now is a Korea-time datetime.
+    Signups open 2 hours ago (or in opens_in minutes) and close tomorrow 23:00; the event is the
+    day after tomorrow, 19:00 to 21:00, and attendance is confirmed by 09:00 that day."""
+    event_id = event_id.strip().lower()
+    title = title.strip() or f"실습 행사 {event_id}"
+    errors = []
+    if not EVENT_ID.match(event_id):
+        errors.append("The ID takes 3 to 40 lowercase letters, digits and hyphens, starting with a letter or digit.")
+    if not 1 <= seats <= 5000:
+        errors.append("--seats must be between 1 and 5000.")
+    if not 0 <= waitlist <= 5000:
+        errors.append("--waitlist must be between 0 and 5000.")
+    if len(title) > 80:
+        errors.append("--title must be 80 characters or fewer.")
+    minute = now.astimezone(KST).replace(second=0, microsecond=0)
+    opens = minute + timedelta(minutes=opens_in) if opens_in is not None else minute - timedelta(hours=2)
+    midnight = minute.replace(hour=0, minute=0)
+    closes = (midnight + timedelta(days=1)).replace(hour=23)
+    starts = (midnight + timedelta(days=2)).replace(hour=19)
+    if closes <= opens:
+        errors.append("--opens-in is too far away: signups close tomorrow at 23:00.")
+    document = {
+        "id": event_id,
+        "title": title,
+        "summary": "./lab event로 만든 실습용 행사",
+        "description": "부하 테스트와 실습에 쓰는 행사입니다.",
+        "venue": "온라인",
+        "starts_at": starts.isoformat(),
+        "ends_at": starts.replace(hour=21).isoformat(),
+        "opens_at": opens.isoformat(),
+        "closes_at": closes.isoformat(),
+        "confirm_deadline": starts.replace(hour=9).isoformat(),
+        "seat_limit": seats,
+        "waitlist_limit": waitlist,
+        "published": True,
+        "poster_version": "",
+        "created_at": now.astimezone(KST).isoformat(timespec="seconds"),
+    }
+    return document, errors
+
+
+def firestore_fields(document: dict) -> dict:
+    """A plain document as Firestore REST fields: text, whole numbers, true/false."""
+
+    def value(v):
+        if isinstance(v, bool):
+            return {"booleanValue": v}
+        if isinstance(v, int):
+            return {"integerValue": str(v)}
+        return {"stringValue": str(v)}
+
+    return {key: value(v) for key, v in document.items()}
+
+
+def event(args: list) -> None:
+    parser = argparse.ArgumentParser(prog="./lab event", description="Create a published event in Firestore.")
+    parser.add_argument("id", help="the last part of the event's address: /events/ID")
+    parser.add_argument("--opens-in", type=int, metavar="MINUTES", help="signups open this many minutes from now")
+    parser.add_argument("--seats", type=int, default=200)
+    parser.add_argument("--waitlist", type=int, default=50)
+    parser.add_argument("--title", default="")
+    opts = parser.parse_args(args)
+    cloud = cloud_from_settings()
+    now = datetime.now(KST)
+    document, errors = event_document(opts.id, now, opts.opens_in, opts.seats, opts.waitlist, opts.title)
+    if errors:
+        die("\n".join(errors))
+    # Straight into Firestore, as the admin form would save it; createDocument refuses an ID that exists
+    status, answer = cloud.post(
+        f"https://firestore.googleapis.com/v1/projects/{cloud.project}/databases/(default)/documents/events"
+        f"?documentId={document['id']}",
+        {"fields": firestore_fields(document)},
+    )
+    page = f"{cloud.url('web')}/events/{document['id']}"
+    if status == 409:
+        die(f"An event {document['id']} already exists: {page}\nPick another ID.")
+    if status == 404:
+        die("No Firestore database yet. Build the lab first: ./lab up PROJECT_ID")
+    if status != 200:
+        die(f"Firestore refused the event ({status}): {answer.get('error', {}).get('message', '')}")
+    opens = datetime.fromisoformat(document["opens_at"])
+    when = "open now" if opens <= now else f"open at {opens:%H:%M} (in {round((opens - now).total_seconds() / 60)} min)"
+    closes = datetime.fromisoformat(document["closes_at"])
+    print(
+        f"{document['seat_limit']} seats, waitlist {document['waitlist_limit']}. Signups {when}, close {closes:%m-%d %H:%M}."
+    )
+    print(f"Event {document['id']} is published: {page}")
+
+
+def web_service(cloud: Cloud) -> dict:
+    return cloud.run_api("services/web") or die("No web service yet. Build the lab first: ./lab up PROJECT_ID")
+
+
+def load(args: list) -> None:
+    parser = argparse.ArgumentParser(prog="./lab load", description="Load test: visitors rush the event's opening.")
+    parser.add_argument("event_id")
+    parser.add_argument("--users", type=int, default=300)
+    parser.add_argument("--minutes", type=int, default=6)
+    opts = parser.parse_args(args)
+    if not EVENT_ID.match(opts.event_id):
+        die(f"{opts.event_id} is not an event ID.")
+    if not has("locust"):
+        die("locust is not installed. In Cloud Shell run ./scripts/setup-cloudshell.sh, then this again.")
+    cloud = cloud_from_settings()
+    web = web_service(cloud)
+    host = web.get("uri") or cloud.url("web")
+    try:
+        urllib.request.urlopen(f"{host}/api/events/{opts.event_id}/status", timeout=60).close()
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            die(f"No event {opts.event_id} on your site. Make one: ./lab event {opts.event_id} --opens-in 3")
+    except (urllib.error.URLError, TimeoutError):
+        pass  # locust reports it
+    limit = int(env_of((web.get("template", {}).get("containers") or [{}])[0]).get("SIGNUPS_PER_MINUTE_PER_IP") or 100)
+    if limit < opts.users:
+        print(
+            f"Note: web allows {limit} signups a minute per address, and every visitor comes from this one "
+            "address, so many signups will get 429. ./lab up sets 5000 on a first build."
+        )
+    print(f"{opts.users} visitors for {opts.minutes} minutes on {host}/events/{opts.event_id} (Ctrl+C stops it).")
+    print("They wait for the opening and sign up the moment it opens, with @example.com addresses (never mailed).")
+    print("Where to look while it runs (graphs arrive 3 to 5 minutes late):")
+    print("  Cloud Run → web → Observability: instance count, request latency")
+    print("  Pub/Sub → Subscriptions → ticket-worker → Metrics: unacked messages")
+    print(f"  Firestore → Firestore Studio → event_counts → {opts.event_id}: held and issued\n", flush=True)
+    done = subprocess.run(
+        ["locust", "-f", str(REPO / "loadtest/locustfile.py"), "--headless", "--host", host]
+        + ["--event-id", opts.event_id, "--burst", "--users", str(opts.users), "--spawn-rate", "10"]
+        + ["--run-time", f"{opts.minutes}m"],
+        cwd=REPO,
+    )  # fmt: skip
+    sys.exit(done.returncode)
+
+
+def timed_get(url: str) -> tuple[float, str]:
+    """Seconds one request took, and the instance that answered (X-Served-By)."""
+    started = time.perf_counter()
+    try:
+        with urllib.request.urlopen(url, timeout=120) as answer:
+            answer.read()
+            who = answer.headers.get("X-Served-By", "")
+    except urllib.error.HTTPError as error:
+        who = f"HTTP {error.code}"
+    return time.perf_counter() - started, who
+
+
+def coldstart() -> None:
+    cloud = cloud_from_settings()
+    web = web_service(cloud)
+    minimum = (web.get("scaling") or {}).get("minInstanceCount", 0)
+    print(f"web's minimum instances: {minimum}")
+    url = f"{web.get('uri') or cloud.url('web')}/health"
+    times = []
+    for n in range(1, 7):
+        seconds, who = timed_get(url)
+        times.append(seconds)
+        print(f"request {n}  {seconds:5.2f} s  {who}", flush=True)
+    print(f"\nFirst request {times[0]:.2f} s, typical {statistics.median(times[1:]):.2f} s (median of the next 5).")
+    if minimum:
+        print(f"web keeps {minimum} instance(s) running, so there is no cold start to see now.")
+    print(
+        "A cold start shows only after about 15 minutes with no traffic and minimum instances 0. If the\n"
+        "first request was as fast as the rest, an instance was still running: close the site's tabs,\n"
+        "wait 15 minutes, and run this again."
+    )
 
 
 # ---------------------------------------------------------------- commands: who may do what
@@ -987,7 +1295,7 @@ def check_base(c: Cloud, r: Result) -> None:
         elif name in ("ticket-secret", "session-secret"):
             r.expect(bool(versions), f"secret {name} has a value", f"secret {name} has no value (no enabled version)")
         else:
-            r.ok(f"secret {name} (empty: mail is off)")
+            r.ok(f"secret {name}" + ("" if versions else " (empty: mail is off)"))
 
 
 def check_topics(c: Cloud, r: Result) -> None:
@@ -1133,10 +1441,8 @@ def check_push(c: Cloud, r: Result) -> None:
     push = sub.get("pushConfig", {})
     if not push.get("pushEndpoint"):
         raise NotBuilt("ticket-worker is still Pull")
-    worker = c.run_api("services/ticket-worker") or {}
-    urls = {u.rstrip("/") for u in [worker.get("uri", ""), *worker.get("urls", []), c.url("ticket-worker")] if u}
     r.expect(
-        push["pushEndpoint"].rstrip("/") in urls,
+        push["pushEndpoint"].rstrip("/") in worker_urls(c),
         "pushes to ticket-worker's URL",
         f"pushes to {push['pushEndpoint']}, not ticket-worker",
     )
@@ -1391,34 +1697,91 @@ def check_paused(c: Cloud, r: Result) -> None:
     r.ok("the Scheduler is paused")
 
 
+def check_github(c: Cloud, r: Result) -> None:
+    check_repo(c, r)
+    try:
+        check_trust(c, r)
+    except NotBuilt as reason:
+        r.bad(f"{reason} (./lab github)")
+
+
+def check_mail(c: Cloud, r: Result) -> None:
+    web, worker = c.run_api("services/web"), c.run_api("services/ticket-worker")
+    if not worker:
+        raise NotBuilt("no ticket-worker yet (./lab up)")
+    containers = {name: (svc.get("template", {}).get("containers") or [{}])[0] for name, svc in
+                  (("web", web or {}), ("ticket-worker", worker))}  # fmt: skip
+    backends = {name: env_of(container).get("MAIL_BACKEND", "") for name, container in containers.items()}
+    if "smtp" not in backends.values():
+        raise NotBuilt("email is off (./lab mail on)")
+    for name, backend in backends.items():
+        r.expect(
+            backend == "smtp",
+            f"{name}: MAIL_BACKEND=smtp",
+            f"{name}: MAIL_BACKEND is {backend or 'not set'} (./lab mail on)",
+        )
+    for secret in MAIL_SECRETS:
+        r.expect(
+            secret_has_value(c, secret),
+            f"secret {secret} has a value",
+            f"secret {secret} has no value: Security → Secret Manager → {secret} → New version",
+        )
+    mounted = secrets_of(containers["ticket-worker"])
+    for var, secret in (("SMTP_PASSWORD", "smtp-password"), ("MAIL_FROM", "mail-from")):
+        r.expect(
+            mounted.get(var) == secret,
+            f"ticket-worker reads {var} from the secret {secret}",
+            f"ticket-worker should read {var} from the secret {secret} (./lab mail on)",
+        )
+        r.expect(
+            f"serviceAccount:{c.sa('ticket-worker')}"
+            in members(c.policy("secret", secret), "roles/secretmanager.secretAccessor"),
+            f"  tickets-ticket-worker may read {secret}",
+            f"  tickets-ticket-worker may not read {secret}",
+        )
+
+
+# Each check: its name, what it looks at, the function. ./lab check NAME runs one.
 CHECKS = {
-    0: check_billing,
-    1: check_start,
-    2: check_database,
-    3: check_base,
-    4: check_topics,
-    5: check_web,
-    6: check_workers,
-    8: check_push,
-    11: check_eventarc,
-    12: check_schedule,
-    13: check_warmup,
-    14: check_repo,
-    15: check_trust,
-    16: check_deploys,
-    26: check_paused,
+    "billing": ("Project, billing, budget", check_billing),
+    "start": ("APIs, image registry, images", check_start),
+    "database": ("Firestore database", check_database),
+    "base": ("Expiry rules, bucket, accounts, secrets", check_base),
+    "topics": ("Topics and subscriptions", check_topics),
+    "web": ("web service", check_web),
+    "workers": ("ticket-worker, waitlist-promoter, mailer", check_workers),
+    "push": ("Push delivery to ticket-worker", check_push),
+    "eventarc": ("Eventarc trigger", check_eventarc),
+    "schedule": ("housekeeping job and Cloud Scheduler", check_schedule),
+    "warmup": ("Pre-warming role", check_warmup),
+    "github": ("Your copy on GitHub, keyless sign-in", check_github),
+    "deploys": ("Deploys from GitHub Actions", check_deploys),
+    "mail": ("Real email", check_mail),
+    "paused": ("Scheduler paused", check_paused),
 }
 
+# The hand-built lab's step numbers still work: ./lab check 8 is ./lab check push
+STEP_CHECKS = {0: "billing", 1: "start", 2: "database", 3: "base", 4: "topics", 5: "web", 6: "workers", 8: "push",
+               11: "eventarc", 12: "schedule", 13: "warmup", 14: "github", 15: "github", 16: "deploys", 26: "paused"}  # fmt: skip
 
-def run_check(cloud: Cloud, step: int) -> tuple:
+
+def check_name(key) -> str | None:
+    """A check's name from a name or an old step number."""
+    if isinstance(key, int) or str(key).isdigit():
+        return STEP_CHECKS.get(int(key))
+    return key if key in CHECKS else None
+
+
+def run_check(cloud: Cloud, key) -> tuple:
+    name = check_name(key)
     result = Result()
     try:
-        CHECKS[step](cloud, result)
+        CHECKS[name][1](cloud, result)
         status = "ok" if result.passed else "NOT"
     except NotBuilt as reason:
         result.lines.append(("-", str(reason)))
         status = "-"
-    if str(step) in skipped():
+    if name in {STEP_CHECKS.get(int(step)) for step in skipped()}:
         status += " (skipped)"
     return status, result.lines
 
@@ -1426,24 +1789,31 @@ def run_check(cloud: Cloud, step: int) -> tuple:
 def check(args: list) -> None:
     cloud = cloud_from_settings()
     report = "--report" in args
-    steps = [int(a) for a in args if a.isdigit()] or list(CHECKS)
-    unknown = [s for s in steps if s not in CHECKS]
-    if unknown:
-        die(f"No check for step {unknown[0]}. Steps with a check: {', '.join(map(str, CHECKS))}")
+    names = []
+    for arg in args:
+        if arg == "--report":
+            continue
+        name = check_name(arg)
+        if not name:
+            die(f"No check {arg}. The checks: {', '.join(CHECKS)}")
+        if name not in names:
+            names.append(name)
+    names = names or list(CHECKS)
     out = []
     if report:
         out.append(f"Cloud Ticketing lab report, {datetime.now().isoformat(timespec='minutes')}")
         out.append(f"project {cloud.project} (number {cloud.number}), {cloud.region}, admin {cloud.admin}")
         repo = own_repo()
         out.append(f"GitHub {repo or '-'}")
+        out.append(f"lab parts: {', '.join(read_tfvars().get('lab_parts', [])) or 'none'}")
         out.append(f"skipped steps: {', '.join(sorted(skipped(), key=int)) or 'none'}")
         out.append("")
     failed = False
-    for step in steps:
-        status, lines = run_check(cloud, step)
+    for name in names:
+        status, lines = run_check(cloud, name)
         failed |= status.startswith("NOT")
-        out.append(f"step {step:<3} {STEP_NAMES[step]:<40} {status}")
-        if len(steps) == 1 or report or status.startswith("NOT"):
+        out.append(f"{name:<9} {CHECKS[name][0]:<40} {status}")
+        if len(names) == 1 or report or status.startswith("NOT"):
             out += [f"  {kind:<5} {text}" for kind, text in lines]
     if report:
         web = (
@@ -1505,7 +1875,7 @@ def skip_repo() -> None:
             time.sleep(3)
         else:
             die(f"Could not clone {repo} yet. Try: gh repo clone {repo} ~/{COPY_NAME}")
-    print(f"Your copy is {repo}, in ~/{COPY_NAME}. From now on work there: cd ~/{COPY_NAME}")
+    print(f"Your copy is https://github.com/{repo}, in ~/{COPY_NAME}. From now on work there: cd ~/{COPY_NAME}")
 
 
 def skip_trust(cloud: Cloud) -> None:
@@ -1516,7 +1886,9 @@ def skip_trust(cloud: Cloud) -> None:
     values = settings()
     values["github_repo_id"] = repo_id
     write_tfvars(values)
-    print("Building step 15 with Terraform.")
+    deployer_users = members(cloud.policy("sa", cloud.sa("deployer")), "roles/iam.workloadIdentityUser")
+    new_grant = member_of(cloud, "github", repo_id) not in deployer_users
+    print("Building the keyless sign-in with Terraform.")
     apply(cloud, SKIPS[15])
     for name, value in (
         ("GCP_PROJECT_ID", cloud.project),
@@ -1525,8 +1897,97 @@ def skip_trust(cloud: Cloud) -> None:
     ):
         sh(["gh", "variable", "set", name, "--repo", repo, "--body", value], capture=True)
         print(f"  GitHub variable {name} set")
-    sh(["gh", "workflow", "run", "sign-in-test.yml", "--repo", repo, "--ref", "main"], capture=True)
-    print("  the sign-in test is running: Actions → Sign-in test")
+    if new_grant:
+        # Tried at once, the test fails with iam.serviceAccounts.getAccessToken denied
+        print("Waiting 90 seconds for the new permission to reach every Google server.", flush=True)
+        time.sleep(90)
+    print("Running the sign-in test (Actions → Sign-in test), about a minute.", flush=True)
+    passed, url = sign_in_test(repo)
+    if passed:
+        print(f"Sign-in test passed: {url}")
+    else:
+        print(f"Sign-in test failed: {url}\nOpen it to read the error; ./lab check github shows what to fix.")
+
+
+def latest_run(repo: str, workflow: str) -> dict:
+    found = gh("run", "list", "--repo", repo, "--workflow", workflow, "--limit", "1", "--json",
+               "databaseId,url,status,conclusion")  # fmt: skip
+    runs = json.loads(found or "[]")
+    return runs[0] if runs else {}
+
+
+def run_workflow(repo: str, workflow: str, minutes: int = 10) -> dict:
+    """Start a workflow on main and wait until it finishes: its run (databaseId, url, conclusion)."""
+    before = latest_run(repo, workflow).get("databaseId")
+    for _ in range(6):  # a new copy's workflows take a moment to show up on GitHub
+        if gh("workflow", "run", workflow, "--repo", repo, "--ref", "main") is not None:
+            break
+        time.sleep(10)
+    else:
+        die(f"Could not start {workflow} in {repo}. Start it by hand: Actions → Sign-in test → Run workflow")
+    deadline = time.monotonic() + minutes * 60
+    while time.monotonic() < deadline:
+        time.sleep(10)
+        run = latest_run(repo, workflow)
+        if run.get("databaseId") not in (None, before) and run.get("status") == "completed":
+            return run
+    die(f"{workflow} did not finish in {minutes} minutes. See Actions in {repo}.")
+
+
+def sign_in_test(repo: str) -> tuple[bool, str]:
+    """Run the Sign-in test: (passed, the run's page). A first failure because the new permission
+    had not spread yet (getAccessToken denied) is tried once more, a minute later."""
+    for attempt in (1, 2):
+        run = run_workflow(repo, "sign-in-test.yml")
+        if run.get("conclusion") == "success":
+            return True, run.get("url", "")
+        failed_log = gh("run", "view", str(run["databaseId"]), "--repo", repo, "--log-failed") or ""
+        if attempt == 1 and "getAccessToken" in failed_log:
+            print(
+                "  Google Cloud had not spread the new permission yet (getAccessToken denied). Trying again in a minute."
+            )
+            time.sleep(60)
+            continue
+        return False, run.get("url", "")
+    return False, ""
+
+
+def github() -> None:
+    cloud = cloud_from_settings()
+    need(bool(cloud.run_api("services/ticket-worker")), "Build the lab first: ./lab up PROJECT_ID")
+    github_login()
+    skip_repo()
+    skip_trust(cloud)
+
+
+def secret_has_value(cloud: Cloud, name: str) -> bool:
+    return bool(cloud.gcloud("secrets", "versions", "list", name, "--filter=state=ENABLED"))
+
+
+def mail(switch: str) -> None:
+    """Real email on or off: mail_enabled in the settings, then the parts on so far applied again."""
+    cloud = cloud_from_settings()
+    values = settings()
+    need("workers" in values.get("lab_parts", []), "Build the lab first: ./lab up PROJECT_ID")
+    if switch == "on":
+        empty = [name for name in MAIL_SECRETS if not secret_has_value(cloud, name)]
+        if empty:
+            die(
+                f"Add a value to {' and '.join(empty)} first. In the Console, for each:\n"
+                "  ☰ → Security → Secret Manager → the secret → Versions tab → New version,\n"
+                "  paste the value, then add it.\n"
+                + "".join(f"  {name}: {what}\n" for name, what in MAIL_SECRETS.items() if name in empty)
+                + "Then run ./lab mail on again."
+            )
+    values["mail_enabled"] = switch == "on"
+    write_tfvars(values)
+    print(f"Turning email {switch} with Terraform: the services get a new revision (a few minutes).")
+    apply(cloud, [])
+    if switch == "on":
+        print("Email is on: MAIL_BACKEND=smtp, and ticket-worker reads smtp-password and mail-from.")
+        print("Addresses at test domains (example.com, .test, ...) are never sent to. Check it: ./lab check mail")
+    else:
+        print("Email is off: MAIL_BACKEND=log. Nothing is sent; organizer sign-in codes go to the logs (./lab code).")
 
 
 def pause() -> None:
@@ -1582,6 +2043,78 @@ def down() -> None:
         print(f"Deploys from {repo} are off. Delete the repository on GitHub if you no longer need it.")
 
 
+# ---------------------------------------------------------------- drift
+
+# Changes a plan always shows that mean nothing: every deploy names web's revision, and the code doesn't
+DRIFT_NOISE = {("google_cloud_run_v2_service", "template.revision")}
+ACTION_WORDS = {("create",): "create", ("update",): "update", ("delete",): "destroy"}
+
+
+def changed_paths(before, after, unknown, path: str = "") -> list:
+    """Attributes whose planned value is known and differs from the live one (list positions left out)."""
+    if unknown is True:
+        return []
+    if isinstance(before, dict) and isinstance(after, dict):
+        unknown = unknown if isinstance(unknown, dict) else {}
+        found = []
+        for key in sorted(set(before) | set(after)):
+            found += changed_paths(before.get(key), after.get(key), unknown.get(key), f"{path}.{key}".lstrip("."))
+        return found
+    if isinstance(before, list) and isinstance(after, list) and len(before) == len(after):
+        unknown = unknown if isinstance(unknown, list) else [None] * len(after)
+        return [p for b, a, u in zip(before, after, unknown, strict=False) for p in changed_paths(b, a, u, path)]
+    return [] if before == after else [path]
+
+
+def drift_lines(plan: dict) -> tuple[list, int]:
+    """One line per resource the plan would change, and how many were hidden as noise."""
+    lines, hidden = [], 0
+    for change in plan.get("resource_changes", []):
+        actions = tuple(change["change"]["actions"])
+        if actions in (("no-op",), ("read",)):
+            continue
+        word = ACTION_WORDS.get(actions, "replace")
+        detail = []
+        if word == "update":
+            c = change["change"]
+            paths = list(dict.fromkeys(changed_paths(c.get("before"), c.get("after"), c.get("after_unknown"))))
+            detail = [p for p in paths if (change["type"], p) not in DRIFT_NOISE]
+            if paths and not detail:
+                hidden += 1
+                continue
+        more = f": {', '.join(detail[:4])}" + (", ..." if len(detail) > 4 else "") if detail else ""
+        lines.append(f"  {word:<8} {change['address']}{more}")
+    return lines, hidden
+
+
+def drift() -> None:
+    cloud = cloud_from_settings()
+    values = settings()
+    keep = ["push"] if "topics" in values.get("lab_parts", []) and push_state(cloud) == "set" else []
+    parts = add_parts(values, keep)  # the parts ./lab up would apply again
+    env = terraform_env()
+    ensure_terraform(env)
+    print("Comparing the live project with the code (terraform plan; nothing is changed). About a minute.", flush=True)
+    plan = terraform("plan", "-input=false", "-no-color", f"-var=lab_parts={json.dumps(parts)}", "-out=drift.tfplan",
+                     env=env)  # fmt: skip
+    try:
+        if plan.returncode:
+            print("\n".join(((plan.stdout or "") + (plan.stderr or "")).strip().splitlines()[-25:]), file=sys.stderr)
+            die("terraform plan stopped on the error above.")
+        shown = terraform("show", "-json", "drift.tfplan", env=env)
+    finally:
+        (INFRA / "drift.tfplan").unlink(missing_ok=True)
+    lines, hidden = drift_lines(json.loads(shown.stdout or "{}"))
+    if lines:
+        print(f"\n{len(lines)} differences between the live project and the code (infra/*.tf):")
+        print("\n".join(lines))
+    else:
+        print("\nThe live project matches the code.")
+    if hidden:
+        print("(Not shown: web's revision name, which every deploy sets.)")
+    print("\n./lab up applies the code again: that is the reset, and it removes these differences.")
+
+
 # ---------------------------------------------------------------- main
 
 
@@ -1594,6 +2127,20 @@ def main(argv: list) -> None:
         link_settings()
     if command == "start" and len(args) == 1:
         start(args[0])
+    elif command == "up" and len(args) == 1:
+        up(args[0])
+    elif command == "github" and not args:
+        github()
+    elif command == "mail" and args in (["on"], ["off"]):
+        mail(args[0])
+    elif command == "event" and args:
+        event(args)
+    elif command == "load" and args:
+        load(args)
+    elif command == "coldstart" and not args:
+        coldstart()
+    elif command == "drift" and not args:
+        drift()
     elif command == "images":
         images()
     elif command in SHORTCUTS and not args:

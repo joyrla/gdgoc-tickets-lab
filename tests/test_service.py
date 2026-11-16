@@ -571,6 +571,61 @@ def test_a_failed_send_is_not_recorded_so_the_retry_sends_it(web, monkeypatch):
     assert mail.send(message) is False  # the repeat Pub/Sub may deliver
 
 
+def test_reserved_test_domains_are_recognised():
+    from shared import mail
+
+    for address in ("load-1@example.com", "a@EXAMPLE.org", "a@example.net.", "a@mail.example.com", "a@x.test",
+                    "a@site.example", "a@nowhere.invalid", "a@localhost", "a@app.localhost"):  # fmt: skip
+        assert mail.reserved_address(address), address
+    for address in ("s1@yonsei.ac.kr", "a@example.co.kr", "a@notexample.com", "a@testing.com", "a@example.com.kr"):
+        assert not mail.reserved_address(address), address
+
+
+class FakeSMTP:
+    sent: list = []
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def starttls(self):
+        pass
+
+    def login(self, *args):
+        pass
+
+    def send_message(self, email):
+        FakeSMTP.sent.append(email["To"])
+
+
+def test_real_mail_never_goes_to_a_test_address(web, monkeypatch, caplog):
+    """The load test signs up @example.com addresses; with mail on, none of them is sent to."""
+    from shared import mail, store
+
+    monkeypatch.setenv("MAIL_BACKEND", "smtp")
+    monkeypatch.setenv("MAIL_FROM", "tickets@example.org")
+    config.get_settings.cache_clear()
+    monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
+    FakeSMTP.sent = []
+    registration_id = web.post(
+        "/api/events/test/registrations", json={"name": "부하 테스트 1", "email": "load-1@example.com"}
+    ).json()["id"]
+    message = {"kind": "ticket_issued", "to": "load-1@example.com", "registration_id": registration_id}
+    with caplog.at_level("INFO", logger="mail"):
+        assert mail.send(message) is True  # handled, so Pub/Sub does not retry it
+        assert mail.send({"kind": "login_code", "to": "a@x.test", "code": "123456"}) is True
+    assert FakeSMTP.sent == []
+    assert "test address, not sent: ticket_issued to load-1@example.com" in caplog.text
+    assert store.email_was_sent(f"ticket_issued:{registration_id}")
+    mail.send({"kind": "login_code", "to": "s1@yonsei.ac.kr", "code": "123456"})
+    assert FakeSMTP.sent == ["s1@yonsei.ac.kr"]
+
+
 def test_a_reminder_that_failed_to_queue_is_tried_again(web, monkeypatch):
     from jobs import housekeeping
     from shared import bus, store

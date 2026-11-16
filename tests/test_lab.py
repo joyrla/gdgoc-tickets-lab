@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -185,8 +186,12 @@ def test_web_without_its_secret_grant_fails_on_that_secret(lab):
 
 
 def test_a_missing_web_is_not_built_yet_rather_than_failed(lab):
-    status, lines = lab.run_check(make_cloud(lab), 5)
+    status, lines = lab.run_check(make_cloud(lab), "web")
     assert status == "-" and "no service web yet" in lines[0][1]
+
+
+WORKER = f"https://ticket-worker-{N}.asia-northeast3.run.app"
+SIGNED_PUSH = {"pushEndpoint": WORKER, "oidcToken": {"serviceAccountEmail": sa("pubsub-push")}}
 
 
 def worker_subscription(push):
@@ -226,7 +231,7 @@ def test_a_signed_push_to_either_address_of_the_worker_passes(lab):
 
 def test_a_pull_subscription_has_not_reached_step_8(lab):
     cloud = make_cloud(lab, gcloud={"pubsub subscriptions describe ticket-worker": worker_subscription(None)})
-    assert lab.run_check(cloud, 8)[0] == "-"
+    assert lab.run_check(cloud, "push")[0] == "-"
 
 
 def test_the_scheduler_made_from_the_job_page_passes(lab):
@@ -260,9 +265,9 @@ def test_the_scheduler_made_from_the_job_page_passes(lab):
         policies={("job", "housekeeping"): bindings(("roles/run.invoker", f"serviceAccount:{sa('scheduler')}"))},
     )
     assert problems(run(lab, lab.check_schedule, cloud)) == []
-    assert lab.run_check(cloud, 26)[0] == "-"  # still running, so step 26 isn't done
+    assert lab.run_check(cloud, "paused")[0] == "-"  # still running, so not paused yet
     scheduler["state"] = "PAUSED"
-    assert lab.run_check(cloud, 26)[0] == "ok"
+    assert lab.run_check(cloud, 26)[0] == "ok"  # the old step number still works
 
 
 def test_a_trust_open_to_every_repository_fails(lab, monkeypatch):
@@ -315,7 +320,7 @@ def test_skipped_steps_show_in_the_check(lab):
     lab.HOME.mkdir(parents=True)
     lab.record_skip(8)
     cloud = make_cloud(lab, gcloud={"pubsub subscriptions describe ticket-worker": worker_subscription(None)})
-    assert lab.run_check(cloud, 8)[0] == "- (skipped)"
+    assert lab.run_check(cloud, "push")[0] == "- (skipped)"
 
 
 # ---------- shortcuts take over what a student already made
@@ -349,9 +354,210 @@ def test_a_shortcut_keeps_a_push_the_student_made_on_a_terraform_subscription(la
     monkeypatch.setattr(lab, "ensure_terraform", lambda env: None)
     monkeypatch.setattr(lab, "adopt", lambda cloud, parts, env: None)
     monkeypatch.setattr(lab, "terraform", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
-    pushed = {"pubsub subscriptions describe ticket-worker": {"pushConfig": {"pushEndpoint": "https://ticket-worker"}}}
+    pushed = {"pubsub subscriptions describe ticket-worker": worker_subscription(SIGNED_PUSH)}
     lab.apply(make_cloud(lab, gcloud=pushed), ["workers"])
     assert lab.read_tfvars()["lab_parts"] == ["start", "base", "topics", "workers", "push"]
+
+
+def test_an_unfinished_push_is_not_completed_by_terraform(lab, monkeypatch):
+    """Pushing without authentication is the student's half-done switch: Terraform must not finish it."""
+    lab.write_tfvars({"project_id": P, "github_repo_id": "0", "admin_emails": [], "lab_parts": ["start", "topics"]})
+    for name in ("terraform_env", "ensure_terraform", "adopt"):
+        monkeypatch.setattr(lab, name, lambda *a, **k: {})
+    monkeypatch.setattr(lab, "terraform", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    unsigned = {"pubsub subscriptions describe ticket-worker": worker_subscription({"pushEndpoint": WORKER})}
+    lab.apply(make_cloud(lab, gcloud=unsigned), ["workers"])
+    assert "push" not in lab.read_tfvars()["lab_parts"]
+
+
+# ---------- ./lab up
+
+
+def test_up_builds_everything_but_push_on_a_first_build(lab):
+    values = {"lab_parts": ["start"]}
+    cloud = make_cloud(lab, gcloud={"pubsub subscriptions describe ticket-worker": worker_subscription(None)})
+    assert lab.up_parts(values, cloud) == lab.UP_PARTS
+    assert lab.up_parts(values, make_cloud(lab)) == lab.UP_PARTS  # no subscription yet
+    assert "push" not in lab.UP_PARTS and "trust" not in lab.UP_PARTS
+    assert set(lab.UP_PARTS) | {"push", "trust", "deployer"} == set(lab.PARTS)
+
+
+def test_up_keeps_the_push_a_student_switched_on(lab):
+    values = {"lab_parts": lab.UP_PARTS}
+    pushed = make_cloud(lab, gcloud={"pubsub subscriptions describe ticket-worker": worker_subscription(SIGNED_PUSH)})
+    assert "push" in lab.up_parts(values, pushed)
+    unsigned = make_cloud(
+        lab, gcloud={"pubsub subscriptions describe ticket-worker": worker_subscription({"pushEndpoint": WORKER})}
+    )
+    assert "push" not in lab.up_parts(values, unsigned)
+
+
+def test_up_keeps_github_parts_once_built(lab):
+    values = {"lab_parts": [*lab.UP_PARTS, "push", "trust", "deployer"]}
+    assert lab.up_parts(values, make_cloud(lab)) == lab.PARTS
+
+
+def test_the_billing_message_shows_what_gcloud_said_when_it_fails(lab):
+    class Failing(lab.Cloud):
+        def gcloud(self, *args, project=True):
+            self.error = "ERROR: (gcloud.billing.projects.describe) PERMISSION_DENIED: not allowed"
+            return None
+
+    problem = lab.billing_problem(Failing(P))
+    assert "PERMISSION_DENIED" in problem and "no billing account" not in problem
+    unlinked = make_cloud(lab, gcloud={f"billing projects describe {P}": {"billingEnabled": False}})
+    assert "no billing account linked" in lab.billing_problem(unlinked)
+    linked = make_cloud(lab, gcloud={f"billing projects describe {P}": {"billingEnabled": True}})
+    assert lab.billing_problem(linked) == ""
+
+
+# ---------- ./lab event
+
+NOW = datetime(2026, 11, 16, 14, 37, 12, tzinfo=timezone(timedelta(hours=9)))
+
+
+def test_the_event_document_has_the_fields_of_an_event(lab):
+    from shared.models import Event
+
+    document, errors = lab.event_document("Rush-A", NOW)
+    assert errors == []
+    assert set(document) == set(Event.__dataclass_fields__)
+    event = Event(**document)
+    assert event.id == "rush-a" and event.published is True and event.poster_version == ""
+    assert (event.seat_limit, event.waitlist_limit) == (200, 50)
+    assert document["opens_at"] == "2026-11-16T12:37:00+09:00"  # open since 2 hours ago
+    assert document["closes_at"] == "2026-11-17T23:00:00+09:00"
+    assert document["starts_at"] == "2026-11-18T19:00:00+09:00"
+    assert document["ends_at"] == "2026-11-18T21:00:00+09:00"
+    assert document["confirm_deadline"] == "2026-11-18T09:00:00+09:00"
+    assert document["created_at"] == "2026-11-16T14:37:12+09:00"
+    assert event.opens < NOW < event.closes and event.deadline < event.starts < event.ends
+
+
+def test_an_event_can_open_later(lab):
+    document, errors = lab.event_document("opening", NOW, opens_in=20, seats=1, waitlist=0, title="오픈 테스트")
+    assert errors == []
+    assert document["opens_at"] == "2026-11-16T14:57:00+09:00"
+    assert (document["seat_limit"], document["waitlist_limit"], document["title"]) == (1, 0, "오픈 테스트")
+    assert lab.event_document("late", NOW, opens_in=60 * 48)[1]  # after signups close
+
+
+def test_event_ids_follow_the_admin_form(lab):
+    from web.admin import EVENT_ID
+
+    for event_id in ("ab", "-abc", "a_b_c", "가나다", "a" * 41, "abc/def"):
+        assert lab.event_document(event_id, NOW)[1], event_id
+        assert not EVENT_ID.match(event_id.lower())
+    for event_id in ("abc", "rush-a", "2026-night", "a" * 40):
+        assert lab.event_document(event_id, NOW)[1] == []
+        assert EVENT_ID.match(event_id)
+    assert lab.event_document("abc", NOW, seats=0)[1] and lab.event_document("abc", NOW, waitlist=-1)[1]
+
+
+def test_firestore_fields_keep_the_types(lab):
+    assert lab.firestore_fields({"a": "x", "n": 3, "b": True, "e": ""}) == {
+        "a": {"stringValue": "x"},
+        "n": {"integerValue": "3"},
+        "b": {"booleanValue": True},
+        "e": {"stringValue": ""},
+    }
+
+
+# ---------- ./lab github
+
+
+def test_the_sign_in_test_is_tried_again_when_the_permission_had_not_spread(lab, monkeypatch):
+    runs, started = [{"databaseId": 1, "status": "completed", "conclusion": "success", "url": "u1"}], []
+
+    def fake_gh(*args):
+        if args[:2] == ("workflow", "run"):
+            started.append(args)
+            conclusion = "failure" if len(started) == 1 else "success"
+            runs.insert(0, {"databaseId": len(runs) + 1, "status": "completed", "conclusion": conclusion,
+                            "url": f"u{len(runs) + 1}"})  # fmt: skip
+            return ""
+        if args[:2] == ("run", "list"):
+            return json.dumps(runs[:1])
+        if args[:2] == ("run", "view"):
+            return "Permission 'iam.serviceAccounts.getAccessToken' denied on resource (or it may not exist)."
+        return None
+
+    monkeypatch.setattr(lab, "gh", fake_gh)
+    monkeypatch.setattr(lab.time, "sleep", lambda seconds: None)
+    assert lab.sign_in_test("student/gdgoc-tickets") == (True, "u3")
+    assert len(started) == 2
+
+
+def test_a_sign_in_test_failing_for_another_reason_is_not_retried(lab, monkeypatch):
+    started = []
+
+    def fake_gh(*args):
+        if args[:2] == ("workflow", "run"):
+            started.append(args)
+            return ""
+        if args[:2] == ("run", "list"):
+            return json.dumps(
+                [{"databaseId": len(started), "status": "completed", "conclusion": "failure", "url": "u"}]
+            )
+        return "rejected by the attribute condition"
+
+    monkeypatch.setattr(lab, "gh", fake_gh)
+    monkeypatch.setattr(lab.time, "sleep", lambda seconds: None)
+    assert lab.sign_in_test("student/gdgoc-tickets") == (False, "u")
+    assert len(started) == 1
+
+
+# ---------- ./lab drift
+
+
+def test_drift_lists_real_changes_and_hides_the_revision_name(lab):
+    web = {"template": [{"revision": "web-00007-abc", "max_instance_request_concurrency": 2}]}
+    plan = {
+        "resource_changes": [
+            {"address": 'google_cloud_run_v2_service.svc["web"]', "type": "google_cloud_run_v2_service",
+             "change": {"actions": ["update"], "before": web,
+                        "after": {"template": [{"revision": None, "max_instance_request_concurrency": 40}]},
+                        "after_unknown": {"template": [{}]}}},
+            {"address": 'google_cloud_run_v2_service.svc["ticket-worker"]', "type": "google_cloud_run_v2_service",
+             "change": {"actions": ["update"], "before": {"template": [{"revision": "w-1", "etag": "x"}]},
+                        "after": {"template": [{"revision": None}]},
+                        "after_unknown": {"template": [{"etag": True}]}}},
+            {"address": "google_pubsub_topic.emails[0]", "type": "google_pubsub_topic",
+             "change": {"actions": ["create"], "before": None, "after": {"name": "emails"}}},
+            {"address": "google_project_service.apis", "type": "google_project_service",
+             "change": {"actions": ["no-op"]}},
+        ]
+    }  # fmt: skip
+    lines, hidden = lab.drift_lines(plan)
+    assert lines == [
+        '  update   google_cloud_run_v2_service.svc["web"]: template.max_instance_request_concurrency',
+        "  create   google_pubsub_topic.emails[0]",
+    ]
+    assert hidden == 1
+
+
+# ---------- checks by name
+
+
+def test_mail_on_with_both_secrets_mounted_passes(lab):
+    def container(env, secrets=None):
+        env = [{"name": k, "value": v} for k, v in env.items()]
+        env += [{"name": k, "valueSource": {"secretKeyRef": {"secret": s, "version": "latest"}}}
+                for k, s in (secrets or {}).items()]  # fmt: skip
+        return {"template": {"containers": [{"env": env}]}}
+
+    worker = container({"MAIL_BACKEND": "smtp"}, {"SMTP_PASSWORD": "smtp-password", "MAIL_FROM": "mail-from"})
+    reader = "roles/secretmanager.secretAccessor"
+    cloud = make_cloud(
+        lab,
+        gcloud={f"secrets versions list {s} --filter=state=ENABLED": [{"name": "1"}] for s in lab.MAIL_SECRETS},
+        api={"services/web": container({"MAIL_BACKEND": "smtp"}), "services/ticket-worker": worker},
+        policies={("secret", s): bindings((reader, f"serviceAccount:{sa('ticket-worker')}")) for s in lab.MAIL_SECRETS},
+    )
+    assert problems(run(lab, lab.check_mail, cloud)) == []
+    off = make_cloud(lab, api={"services/web": container({"MAIL_BACKEND": "log"}),
+                               "services/ticket-worker": container({"MAIL_BACKEND": "log"})})  # fmt: skip
+    assert lab.run_check(off, "mail")[0] == "-"
 
 
 def test_every_skip_names_parts_terraform_knows(lab):
@@ -371,6 +577,7 @@ def test_the_report_lists_every_step_with_a_check(lab, monkeypatch, tmp_path, ca
     with pytest.raises(SystemExit):
         lab.check(["--report"])
     report = (tmp_path / "report.txt").read_text()
-    for step in lab.CHECKS:
-        assert re.search(rf"^step {step} ", report, re.M), step
+    for name in lab.CHECKS:
+        assert re.search(rf"^{name} ", report, re.M), name
+    assert set(lab.STEP_CHECKS.values()) <= set(lab.CHECKS)
     assert json.dumps(P)[1:-1] in report

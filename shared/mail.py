@@ -157,10 +157,25 @@ def send(message: dict) -> bool:
     return True
 
 
+# Domains reserved for tests and examples (RFC 2606, RFC 6761). Nobody receives mail there, so
+# real mail never goes to them; the load test signs up thousands of @example.com addresses.
+RESERVED_DOMAINS = ("example.com", "example.net", "example.org", "test", "example", "invalid", "localhost")
+
+
+def reserved_address(to: str) -> bool:
+    """Whether an address is at a reserved domain (or one under it, like mail.example.com or x.test)."""
+    domain = to.rsplit("@", 1)[-1].strip().lower().rstrip(".")
+    return any(domain == d or domain.endswith(f".{d}") for d in RESERVED_DOMAINS)
+
+
 def _deliver(message: dict) -> None:
     settings = get_settings()
-    subject, body = render(message)
     to = message["to"]
+    if settings.mail_backend == "smtp" and reserved_address(to):
+        # Done, not failed: no retry, and the address is no one's
+        log.info("test address, not sent: %s to %s", message["kind"], to)
+        return
+    subject, body = render(message)
 
     if settings.mail_backend == "outbox":
         _save_to_outbox(to, subject, body)

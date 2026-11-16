@@ -1,1054 +1,527 @@
 # Cloud Ticketing lab
 
-You build and run an event signup site in your own Google Cloud project. The app code is finished, and you won't write code in this lab. You create the cloud side by hand in the Console, and `./lab` shortcut commands do the repetitive work. After building it, you observe it, break it on purpose, fix it and measure it.
+You put a finished event-signup service into your own Google Cloud project with one command. Then you sign up, cancel and rush it for real, and follow in the Console where each request goes through the cloud. A few things you break on purpose and fix. You write no code.
 
 | | |
 |---|---|
-| Level | Beginner (200) |
-| Time | 2-hour session (D0) + 7 to 9 hours over one week |
-| Cost | Taken from free trial credit. Budget set to ₩12,000, real cost checked in step 26 |
-| Last checked | Not yet (date recorded after a full test run) |
+| Level | Introductory (200) |
+| Time | 70-minute session + about 3 hours over two weeks (in four sittings) |
+| Cost | Taken from the free trial credit. A 12,000 won budget alert is set. Real cost is a few thousand won |
+| Last checked | 2026-11-16 (updated after the full test run) |
 
-**When you finish, you can**
+**By the end you can**
 
-- Explain, problem by problem, the cloud parts a service with a signup rush needs
-- Create and connect Cloud Run services, Pub/Sub, Eventarc, Cloud Scheduler and Firestore in the Console
-- Find failures (start failure, 403, 404, retries, dead letter) in the logs and trace each one to the setting that caused it
-- Deploy from GitHub Actions without keys, and explain why a broken version doesn't reach users
-- Compare cold starts, autoscaling, concurrency and pre-warming with your own measurements
+- Follow one signup through `web` → Pub/Sub → worker → Firestore to a ticket, in the Console and the logs
+- Explain which problem a queue, an event and a scheduled job each solve
+- Read a 403, a retry, a dead letter and a failed revision, and find the one setting behind each
+- Compare autoscaling, concurrency, cold start and pre-warm with your own measurements
+- Deploy from GitHub without keys, and explain why a broken version never reaches users
+- Keep a third-party key in Secret Manager and explain who can read it
 
-## How to read this sheet
+## How to read this
 
-- ☰ is the navigation menu at the top left of the Console. "☰ → **Pub/Sub → Subscriptions**" means: click **Pub/Sub** in ☰, then **Subscriptions** in the left menu. If it isn't in the menu, find it in the full product list at the bottom.
-- Bold text is the Console's button and field names. If your Console is in Korean, the Korean sheet (lab.ko.md) has the Korean labels.
-- On every screen, first check that the lab project is selected in the project menu at the top.
-- What the Console lists under **Jobs** is a Cloud Run job in this sheet.
-- Names with underscores, like `PROJECT_ID` and `PROJECT_NUMBER`, stand for your own values. Both are in ☰ → **IAM & Admin → Settings**.
+- ☰ is the navigation menu at the top left of the Console. "☰ → **Cloud Run → Services**" means: in ☰, point at **Cloud Run** and click **Services**.
+- **Pub/Sub, Eventarc, Cloud Scheduler and Logging are not in the default ☰ list.** Once, open ☰ → **View all products** and click the ☆ on those four rows; they then appear under **Favorite products** at the top of ☰.
+- Bold text is a Console button or field. If your Console is in Korean, use the Korean sheet (`lab.ko.md`).
+- On every screen, first check that the project menu at the top shows your lab project.
+- Names with underscores, like `PROJECT_ID`, are your own values.
 
-**Step types**
+**Each mission:** predict → do → where to look → check → why. Write the prediction in one line before you start. Wrong predictions are fine; they are the ones you remember.
 
-| Mark | Meaning |
+**Submission cues:** **Submit 1** to **Submit 6** are required screenshots; **Optional** ones are up to you. They are collected in [Submission](#submission) at the end.
+
+**When stuck:** after 20 minutes, post the mission number, the `./lab check` output and the error screen in the help thread. If something is broken, running `./lab up PROJECT_ID` again puts every setting back to the code's version.
+
+## If you know AWS
+
+| AWS | This lab (Google Cloud) |
 |---|---|
-| by hand | You create it in the Console. When done, check with `./lab check STEP` |
-| shortcut | A `./lab` command creates it. **Do it in the Console**, right below it, shows how to do the same by hand. The command creates only what is missing, so you can build part of it by hand and then run it |
-| experiment | Predict, try it, check, and write down the reason |
+| Account | Project |
+| App Runner, ECS Fargate service | Cloud Run service (`web`, two workers) |
+| ECS run-task | Cloud Run job (`housekeeping`) |
+| SNS + SQS | Pub/Sub. The topic is like SNS; each subscription is like an SQS queue |
+| SQS dead-letter queue | The dead-letter topic and its subscription |
+| EventBridge rule | Eventarc trigger |
+| EventBridge Scheduler | Cloud Scheduler |
+| DynamoDB | Firestore |
+| IAM role a service assumes | Service account |
+| Resource policy (`lambda:InvokeFunction`) | A role granted on the resource (`Cloud Run Invoker`) |
+| CloudFormation stack | Nothing in the Console; the Terraform code and state play that role |
 
-**Parts of each step:** Problem → Do → Predict → Where to look → Check → Why, If stuck.
-
-**Submission cues:** **Submit 1** to **Submit 6** at the end of a step are required screenshots; **Optional** marks screenshots you may add. The details are in [Submission](#submission) at the end.
-
-**When stuck:** if you're stuck for more than 20 minutes, post the step number, the output of `./lab check STEP` and the error screen in the help thread. To move on without waiting, `./lab skip STEP` builds that step and you go to the next one. Skipped steps are marked in the report.
-
-## Where to look
-
-| Concept (moment in the event) | Steps | Where to look | What you should see |
-|---|---|---|---|
-| Autoscaling (signups open) | 23, 24 | ☰ → **Cloud Run** → `web` → **Observability** → **Metrics**: container instance count, request latencies | Instances grow when signups rush in, and shrink when it's over |
-| Scaling to zero (night) | 22, 26 | The same graph after a long idle period, ☰ → **Billing → Reports** | 0 instances, cost only for the time used |
-| State outside the server (creating an event) | 2, 16 | ☰ → **Firestore** → **Firestore Studio**: `events`, `registrations` | The data unchanged after a new revision |
-| Transaction (the last seat) | 23 | Firestore Studio → `event_counts` → your event | `held` and `issued` equal the seat count |
-| Queue (right after a signup) | 7, 8 | ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Messages**, **Metrics** | Messages waiting while it's Pull, 0 after Push |
-| Retries, idempotency, dead letter (a ticket fails) | 9, 10 | `ticket-worker`'s **Logs**, the `dead-letter` subscription's **Messages** | 500s at growing intervals, the message moved to dead letter, `skip` for a duplicate |
-| Event-driven (a cancellation) | 11 | ☰ → **Eventarc → Triggers**, `waitlist-promoter`'s **Logs** | A waitlist promotion log a few seconds after the cancellation |
-| Scheduled work (the confirmation deadline) | 12 | ☰ → **Cloud Run → Jobs** → `housekeeping` → **History**, ☰ → **Cloud Scheduler** | A run every 5 minutes, released seats |
-| Cold start, pre-warming (15 minutes before opening) | 22, 25 | `web`'s instance count graph, `minScale` on the **YAML** tab | A slow first request, 3 instances ready before the opening |
-| Who can do what | 3, 5, 8, 20 | ☰ → **IAM & Admin → IAM**, `./lab iam`, each service's **Security** and **Networking** tabs, a secret's **Permissions** tab | For each start failure, 403 and 404, the one setting that caused it |
-| Safe changes | 15–19 | GitHub **Actions**, `web`'s **Revisions** tab | A 0% revision, the check, the switch. A failed revision gets 0 traffic |
-| Observation | 21, 23 | ☰ → **Logging → Logs Explorer** | The same ticket code in the `web` and `ticket-worker` logs |
-| Data retention (30 days later) | 3 | ☰ → **Firestore** → **Time-to-live (TTL)** | 5 policies, Serving |
-
-## Schedule
-
-| Day | Steps | Time |
-|---|---|---|
-| D0 session | 0–3: project, `./lab start`, Firestore, `./lab base` | 70 min in the session |
-| D1 | 4–7: topics and subscriptions, deploying `web`, workers, first signup | 75 min |
-| D2 | 8–10: push connection, idempotency, retries and dead letter | 75 min |
-| D3 | 11–13: Eventarc, job and Scheduler, pre-warming permission | 60 min |
-| D4 | 14–19: GitHub copy, keyless sign-in, deploys, failure and rollback | 100 min |
-| D5 | 20–25: access control, logs, cold start, load tests | 110 min |
-| D6–7 | 26–27: cost, pausing, submission and review interview | 45 min |
+## What gets built
 
 ![Architecture](architecture.png)
 
+| Part | What it does |
+|---|---|
+| `web` (Cloud Run service, public) | Event pages and API. Saves the seat in Firestore, leaves a "make a ticket" message, and answers at once |
+| Pub/Sub topic `registrations` and subscription `ticket-worker` | Holds messages and delivers them to the worker. Retries on failure; after 5 failures, moves the message to `dead-letter` |
+| `ticket-worker` (service, internal only) | Makes the QR ticket and sends email |
+| Eventarc trigger and `waitlist-promoter` (service, internal only) | When a registration changes (a cancel), gives the seat to the first person waiting |
+| Cloud Scheduler and `housekeeping` (Cloud Run job) | Every 5 minutes: deadlines, resending stuck tickets, filling free seats, pre-warming before an opening |
+| Firestore | Events, registrations, seat counters |
+| 8 service accounts | One per part, with only the permissions it needs |
+
+## Schedule
+
+| Sitting | Missions | Time |
+|---|---|---|
+| 1 (session) | 0 Setup, 1 Look around | 70 min |
+| 2 | 2 Follow one signup, 3 Connect the queue to the worker, 4 Worker failure and dead letter | 60 min |
+| 3 | 5 Cancel and events, 6 Revisions and rollback, 7 Cold start and pre-warm | 60 min |
+| 4 | 8 The rush, 9 Deploy from GitHub | 60 min |
+| 5 | 10 Real email and secrets, 11 Cost and pause, submission | 40 min |
+
 ---
 
-# D0. Session
+# Sitting 1. Setup and a look around
 
-## Step 0. Project and budget (by hand, 10 min)
-
-**Problem.** If you start without knowing what the lab costs, you won't know until the end whether something was left running.
+## Mission 0. Project, budget, build it all (15 min + 25 min waiting)
 
 **Do.**
-1. ☰ → **IAM & Admin → Manage resources** → **Create project**. Note the **Project ID** under the name.
-2. In ☰ → **Billing → My projects**, check that a billing account is linked to the new project. If not, the row's **Actions** menu → **Change billing**.
-3. ☰ → **Billing → Budgets & alerts** → **Create budget**. Scope: the lab project. Amount: ₩12,000. Alerts: the defaults.
-
-**Check.** After step 1, `./lab check 0`.
-
-**Why.** A budget only sends alerts. It doesn't stop services. **Don't click "Activate full account".**
-
-## Step 1. Cloud Shell and `./lab start` (shortcut, 15 min)
-
-**Problem.** In a new project almost every service is off, and there are no images to deploy.
-
-**Do.**
-1. Click **Activate Cloud Shell** (the >_ icon) at the top right of the Console.
-2. Sign in to GitHub. Press Enter and enter the code on the screen at [github.com/login/device](https://github.com/login/device).
+1. ☰ → **IAM & Admin → Create a project**. Enter a name and note the **Project ID** under it. **Create**.
+2. Select the new project in the project menu at the top.
+3. ☰ → **Billing**. If it says no billing account is linked, use **Link a billing account** to link your free trial account.
+4. ☰ → **Billing** → left menu **Budgets & caps** → **Create new**.
+   - **Definition**: **Alerts only**. Any name. **Next**
+   - **Scope**: under **Projects**, tick only your lab project. **Next**
+   - **Amount**: target amount `12000`. **Next**
+   - **Actions**: defaults (50%, 90%, 100%) → **Finish**
+5. Click **Activate Cloud Shell** (>_) at the top right. Sign in to GitHub and get the lab repository. You must accept the GitHub invitation from your instructor first.
 
    ```bash
    gh auth login --web --scopes workflow
-   ```
-
-3. Get the lab repository and start.
-
-   ```bash
    gh repo clone joyrla/gdgoc-tickets-lab
    cd gdgoc-tickets-lab
-   ./lab start PROJECT_ID
+   ./lab up PROJECT_ID
    ```
 
-What `./lab start` does: installs tools, turns on the APIs, creates the image registry (Artifact Registry) `gdgoc-tickets`, and builds four images in the background (about 5 minutes). Go on to step 2 while the build runs.
+   At `gh auth login`, press Enter and type the code on screen at [github.com/login/device](https://github.com/login/device).
 
-<details>
-<summary>Do it in the Console</summary>
+What `./lab up` does: installs tools, turns on APIs, builds four images, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes 20 to 25 minutes. Do Mission 1 while you wait.
 
-1. In ☰ → **APIs & Services → Library**, search for each one and click **Enable**: Cloud Run Admin API, Artifact Registry API, Cloud Firestore API, Cloud Pub/Sub API, Secret Manager API, Eventarc API, Cloud Scheduler API, IAM Service Account Credentials API, Security Token Service API, Cloud Billing Budget API.
-2. ☰ → **Artifact Registry → Repositories** → **Create repository**. Name `gdgoc-tickets`, format **Docker**, mode **Standard**, location type **Region**, `asia-northeast3 (Seoul)`. **Create**. Check again that the mode is **Standard** before you create it.
-3. Then run `./lab start PROJECT_ID`. It leaves what already exists as it is, and only records the settings and builds the images. Images are built only by the command (`./lab images`).
-</details>
+**Check.** The last line shows your site's address. Opening it shows an empty event list.
 
-**Check.** The last line is `Done.` After 5 minutes, `./lab check 1` shows the four images as `ok`.
+**Why.** A budget only sends alerts; it does not stop anything. **Do not click "Upgrade to a full account".** Building these parts by hand in the Console takes 6 to 8 hours, most of it filling in forms. This lab spends that time using, breaking and measuring what was built. Building it is the topic of the next session (Terraform).
 
-**If stuck.**
+**Stuck?**
 
 | Message | Fix |
 |---|---|
 | `cannot see project` | A typo in the project ID. It differs from the project name |
-| `no billing account linked` | Step 0, item 2 |
-| `image ... is missing` | Still building. `tail ~/.gdgoc-lab/images.log`, and if it stopped, `./lab images` |
+| `no billing account linked` | Step 3 |
+| The repository won't clone | Check that you accepted the GitHub invitation |
+| `Google Cloud is not ready yet` | Common in a new project. The command retries by itself a minute later |
+| Cloud Shell disconnected | Reopen it and run `cd ~/gdgoc-tickets-lab && ./lab up PROJECT_ID` |
 
-Cloud Shell disconnects after a long idle period. When you open it again, start with `cd ~/gdgoc-tickets-lab`.
+## Mission 1. Look around (15 min, while `./lab up` runs)
 
-## Step 2. Firestore database (by hand, 10 min)
+Look at what is being built. Parts appear in the Console as `./lab up` finishes them.
 
-**Problem.** Cloud Run adds copies of the server (instances) when there are many requests, and deletes them when there are none. Each copy has its own memory and can disappear at any time, so seat counts and signups must live outside the server.
+**Do.** Find the answers to these five questions in the Console and write them down.
 
-**Do.** ☰ → **Firestore** → **Create database**.
+1. ☰ → **Cloud Run → Services** → `web` → **Security** tab: which service account does `web` run as?
+2. `web` → **Containers** tab, variables: which topic will signup messages go to? (Hint: compare with the topic names in Pub/Sub)
+3. ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Details**: what is the delivery type, and where does a message go after how many failures?
+4. ☰ → **Cloud Run → Services** → tick `ticket-worker` → **Permissions**: who may call `ticket-worker`? Which subscription uses that account right now? (Hint: the `mailer` subscription in Pub/Sub)
+5. ☰ → **Eventarc → Triggers** → `registration-changed`: which changes does it react to?
 
-| Field | Value |
-|---|---|
-| Database ID | `(default)` |
-| Edition | **Standard Edition** |
-| Security rules | **Restrictive** |
-| Location type | **Region**, `asia-northeast3 (Seoul)` |
-| Disaster recovery (PITR, delete protection) | Off |
+`./lab iam` shows every account's permissions and the reason for each in one table.
 
-**The region and edition can't be changed after creation.** If you get them wrong, you have to delete the database and create it again. **Create Database**.
-
-**Predict.** With the security rules set to "Restrictive", will the services be unable to read the data?
-
-**Where to look.** ☰ → **Firestore** → `(default)` → **Firestore Studio**. It is still empty.
-
-**Check.** `./lab check 2`
-
-**Why.** Security rules apply only to browsers and apps that use the Firebase SDKs. The services reach the data with server libraries and IAM permissions, so the rules don't affect them. Transactions in the Standard edition lock the documents they read, so the last seat isn't given to two people.
-
-**If stuck.** If you created it in another region, ☰ → **Firestore** → the database → **Delete**, then create it again. Or `./lab skip 2`.
-
-## Step 3. `./lab base` and `./lab iam` (shortcut, explain, 15 min)
-
-**Problem.** Each service needs an identity (service account), signing keys (secrets), file storage and a deadline for deleting personal data. This part is many clicks and little learning.
-
-**Do.**
-
-```bash
-./lab base
-./lab iam
-```
-
-What `./lab base` creates: TTL (expiry) rules for 5 collections, an index for the waitlist query, the private bucket `PROJECT_ID-assets`, 8 service accounts, 4 secrets, Firestore permissions for the 4 runtime accounts, and bucket permissions.
-
-<details>
-<summary>Do it in the Console</summary>
-
-**TTL.** ☰ → **Firestore** → `(default)` → **Time-to-live (TTL)** → **Create policy**. One for each collection group `registrations`, `codes`, `emails`, `login_codes`, `sent_emails`, timestamp field `expire_at`.
-
-**Exclude the expiry field from indexing.** ☰ → **Firestore** → `(default)` → **Indexes** → **Automatic** tab → **Add exemption**. For each of the 5 collections above, field path `expire_at`, query scope **Collection**, and set **Ascending**, **Descending** and **Arrays** all to **Disabled**.
-
-**Waitlist index.** **Indexes** → **Manual** tab → **Create index**. Collection ID `registrations`, fields `event_id` ascending, `status` ascending, `created_at` ascending, query scope **Collection**.
-
-**Bucket.** ☰ → **Cloud Storage → Buckets** → **Create**. Name `PROJECT_ID-assets`, region `asia-northeast3`, public access prevention **On**, access control **Uniform**. After creating it, **Lifecycle** tab → **Add a rule**: delete object, name prefix `tickets/`, age 90 days.
-
-**Service accounts.** ☰ → **IAM & Admin → Service Accounts** → **Create service account**, 8 times. IDs and roles:
-
-| ID | Project role |
-|---|---|
-| `tickets-web` | Cloud Datastore User |
-| `tickets-ticket-worker` | Cloud Datastore User |
-| `tickets-waitlist-promoter` | Cloud Datastore User |
-| `tickets-housekeeping` | Cloud Datastore User |
-| `tickets-pubsub-push` | None |
-| `tickets-eventarc` | None |
-| `tickets-scheduler` | None |
-| `tickets-deployer` | None |
-
-**Secrets.** ☰ → **Security → Secret Manager** → **Create secret**. For `ticket-secret` and `session-secret`, enter a random 32-character value (letters and digits). Create `smtp-password` and `mail-from` without a value (mail is off). Don't grant read access here. That happens in steps 5 and 6.
-
-**Bucket permissions.** Bucket → **Permissions** → **Grant access**. **Storage Object User** for `tickets-web` and `tickets-ticket-worker`.
-
-Once you've created everything, running `./lab base` creates nothing new.
-</details>
-
-**Predict.** Why does each service get its own service account?
-
-**Where to look.** The table from `./lab iam`. The same information is spread across ☰ → **IAM & Admin → IAM** and each resource's **Permissions** tab.
-
-**Check.** `./lab check 3`. You're done when you can pick one account in `./lab iam` and say what each of its permissions is for (the optional question for step 3).
-
-**Why.** If one service is compromised, the damage is limited to that service's permissions. `web` can't read the mail password, and the worker can't change `web`. Where possible, a permission is granted on one resource (one bucket, one secret).
-
-**If stuck.** The `NOT` lines of `./lab check 3` tell you what is missing. You can also run `./lab base` again.
+**Why.** The Console shows what exists now, one part at a time. How the parts connect only shows when you follow it, as in these five questions. The code (`infra/*.tf`) holds what should exist and why.
 
 ---
 
-# D1. The request path
+# Sitting 2. Follow one signup
 
-## Step 4. Topics and subscriptions (by hand, 20 min)
-
-**Problem.** The work right after a signup (making the QR, sending email) is slow and can fail. If the signup reply waits for it, everyone waits during a rush. So `web` only leaves a "registered" message and replies at once.
+## Mission 2. Follow one signup (15 min)
 
 **Do.**
-1. ☰ → **Pub/Sub → Topics** → **Create topic**, 3 times: `registrations`, `emails`, `dead-letter`. Untick **Add a default subscription** each time.
-2. ☰ → **Pub/Sub → Subscriptions** → **Create subscription**: the subscription that holds dead letters.
-
-   | Field | Value |
-   |---|---|
-   | Subscription ID | `dead-letter` |
-   | Topic | `projects/PROJECT_ID/topics/dead-letter` |
-   | Delivery type | **Pull** |
-   | Acknowledgement deadline | 600 seconds |
-   | Expiration period | **Never expire** |
-
-3. **Create subscription** once more: the subscription that makes tickets. Create it as **Pull** for now.
-
-   | Field | Value |
-   |---|---|
-   | Subscription ID | `ticket-worker` |
-   | Topic | `projects/PROJECT_ID/topics/registrations` |
-   | Delivery type | **Pull** |
-   | Acknowledgement deadline | 60 seconds |
-   | Expiration period | **Never expire** |
-   | Retry policy | **Retry after exponential backoff delay**, minimum 10 seconds, maximum 300 seconds |
-   | Dead lettering | On, topic `dead-letter`, maximum delivery attempts **5** |
-
-4. On the **Dead lettering** tab that opens after creation, click **Grant Publisher role** and **Grant Subscriber role**.
-
-**Predict.** While the subscription doesn't send messages anywhere yet, are the messages that arrive lost?
-
-**Where to look.** Subscription `ticket-worker` → **Details** and **Dead lettering** tabs.
-
-**Check.** `./lab check 4`
-
-**Why.** A topic is the name messages are sent to, and a subscription delivers them to one receiver. A subscription keeps each message for the retention period (7 days by default) and deletes it only after the receiver pulls it or accepts it. A message that fails 5 times moves to `dead-letter`, where a person looks at it. The two roles in item 4 let Pub/Sub itself move failed messages.
-
-**If stuck.** If you created a topic without unticking the default subscription, delete that subscription (`registrations-sub` and so on). If the warning on the dead-letter tab stays, click the buttons again. Or `./lab skip 4`.
-
-## Step 5. Deploy `web` (by hand, deliberate failure, 25 min)
-
-**Problem.** You need a public service that takes signups. This service signs tickets and sign-in cookies, so it has to read the signing keys.
-
-**Do.**
-1. In Cloud Shell, print the values to paste.
+1. Create an event in Cloud Shell.
 
    ```bash
-   ./lab env web
+   ./lab event wiring
    ```
 
-2. ☰ → **Cloud Run → Services** → **Deploy container** → **Service**.
+2. Open the address in the output (`/events/wiring`) and sign up with your own email.
+3. Click **View ticket**.
 
-   | Field | Value |
-   |---|---|
-   | Container image URL | The `image:` line of `./lab env web` |
-   | Service name | `web` |
-   | Region | `asia-northeast3 (Seoul)` |
-   | Authentication | **Allow public access** |
-   | Billing | **Request-based** |
-   | Service scaling | Auto scaling, minimum 0, maximum 20 |
-   | Ingress | **All** |
+**Predict.** Will the ticket page show a QR code?
 
-3. Expand **Containers, Networking, Security**.
+**Where to look.**
+- ☰ → **Firestore** → `(default)` → **Firestore Studio** → `registrations`: your new document and its `status`
+- ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Messages** tab → **Pull**. Leave **Enable ack messages** unticked. Pull only once (each pull counts as a delivery attempt).
 
-   | Where | Value |
-   |---|---|
-   | Container → **Settings** | Memory 512 MiB, CPU 1, **Startup CPU boost** on |
-   | Container → **Settings → Add health check** | **Startup check**, HTTP, path `/health`, port 8080, period 2 seconds, failure threshold 30 |
-   | Container → **Requests** | Request timeout 300 seconds, maximum concurrent requests per instance 40 |
-   | Container → **Variables & Secrets** → **Add variable** | Paste the whole variable block of `./lab env web` into the first **Name** box |
-   | Container → **Variables & Secrets** → **Reference a secret** | `TICKET_SECRET` → `ticket-secret` version 1, `SESSION_SECRET` → `session-secret` version 1 |
-   | **Security** tab | Service account `tickets-web` |
+**Check.** The ticket stays at **Issuing your ticket**. One `{"registration_id": ...}` message is waiting in the subscription.
 
-4. If a permission warning or a **Grant** button appears next to a secret, **don't click it.**
-5. **Create**.
+**Why.** `web` saved the seat in Firestore, left a message and answered right away. The subscription is **Pull** for now, so it just keeps the message until someone takes it. Nothing is lost. Because signup and ticketing are split, signups keep working even when ticketing is slow or stopped.
 
-In this form, Enter submits at once. Move between fields by clicking.
+> **Optional:** the waiting message and the "issuing" ticket page
 
-**Predict.** Will `web` start?
+## Mission 3. Connect the queue to the worker (15 min, by hand)
 
-**Where to look.** The error message on the `web` service page, and the red mark on the **Revisions** tab.
-
-**Check.** It fails to start. The message shows `Permission denied on secret` and `tickets-web`.
-
-Now fix it.
-1. ☰ → **Security → Secret Manager** → `ticket-secret` → **Permissions** tab → **Grant access**.
-2. New principal `tickets-web@PROJECT_ID.iam.gserviceaccount.com`, role **Secret Manager Secret Accessor**. **Save**.
-3. Give `session-secret` the same permission.
-4. ☰ → **Cloud Run** → `web` → **Edit & deploy new revision** → **Deploy**.
-
-This time a green check appears, and the service URL shows the home page. `./lab check 5`.
-
-**Why.** A service runs as its own service account, and it can't use permissions that account doesn't have. You granted the permission on one secret, not on the whole project. So `web` can't read the mail password (`smtp-password`).
-
-> **Optional:** the failed revision's message, then the working service
-
-**If stuck.** `runs as ... not tickets-web`: the service account on the **Security** tab. If the variables merged into one line, fix them one by one under **Variables & Secrets**. Or `./lab skip 5`.
-
-## Step 6. `./lab workers` (shortcut, compare, 10 min)
-
-**Problem.** You need `ticket-worker`, which makes tickets, and `waitlist-promoter`, which gives freed seats to the waitlist. Neither will ever be called from the internet.
+This is the connection you build yourself in this lab.
 
 **Do.**
-
-```bash
-./lab workers
-```
-
-What it creates: the two workers, the `mailer` subscription (the path sign-in code emails take), topic and secret permissions, permission for `tickets-pubsub-push` to call `ticket-worker`, and event-receiving permission for `tickets-eventarc`.
-
-<details>
-<summary>Do it in the Console</summary>
-
-**Two services.** Create them with the same form as in step 5, entering only the values that differ. The variables are the block from `./lab env web` without the two lines `DEAD_LETTER_SUBSCRIPTION` and `SIGNUPS_PER_MINUTE_PER_IP`.
-
-| Field | `ticket-worker` | `waitlist-promoter` |
-|---|---|---|
-| Image | `.../ticket-worker:lab` | `.../waitlist-promoter:lab` |
-| Authentication | **Require authentication** | **Require authentication** |
-| Ingress | **Internal** | **Internal** |
-| Maximum instances | 5 | 3 |
-| Request timeout | 60 seconds | 60 seconds |
-| Maximum concurrent requests per instance | 2 | 2 |
-| Secrets | `TICKET_SECRET` → `ticket-secret` 1 | None |
-| Service account | `tickets-ticket-worker` | `tickets-waitlist-promoter` |
-
-**`mailer` subscription.** ☰ → **Pub/Sub → Subscriptions** → **Create subscription**. ID `mailer`, topic `emails`, **Push**, endpoint `https://ticket-worker-PROJECT_NUMBER.asia-northeast3.run.app/mail`, **Enable authentication**, service account `tickets-pubsub-push`, audience `https://ticket-worker-PROJECT_NUMBER.asia-northeast3.run.app`, acknowledgement deadline 60 seconds, never expire, exponential backoff 10 to 300 seconds, dead letter `dead-letter` after 50 attempts. After creating it, **Grant Subscriber role** on the **Dead lettering** tab.
-
-**Permissions.**
-
-| Resource | Principal | Role |
-|---|---|---|
-| Service `ticket-worker` (tick it in Cloud Run → Services → **Permissions**) | `tickets-pubsub-push` | Cloud Run Invoker |
-| Secrets `ticket-secret`, `smtp-password`, `mail-from` | `tickets-ticket-worker` | Secret Manager Secret Accessor |
-| Topic `registrations` (tick the topic → **Permissions**) | `tickets-web`, `tickets-waitlist-promoter`, `tickets-housekeeping` | Pub/Sub Publisher |
-| Topic `emails` | `tickets-web`, `tickets-ticket-worker`, `tickets-housekeeping` | Pub/Sub Publisher |
-| Subscription `dead-letter` | `tickets-web` | Pub/Sub Subscriber |
-| Project (☰ → **IAM & Admin → IAM** → **Grant access**) | `tickets-eventarc` | Eventarc Event Receiver |
-</details>
-
-**Predict.** How do the two workers' ingress and concurrency differ from `web`'s? Why?
-
-**Where to look.** ☰ → **Cloud Run** → each service's **Networking** tab (ingress), **Scaling** tab and **Containers** tab (concurrency, maximum instances).
-
-**Check.** `./lab check 6`. `web` has ingress **All** and concurrency 40. The workers have **Internal** and concurrency 2.
-
-**Why.** The workers are called only from inside Google Cloud (Pub/Sub, Eventarc), so their door to the internet is closed. Concurrency 2 × at most 5 instances = up to 10 tickets at once. This limits the rate, so the mail service and Firestore aren't hit all at once.
-
-**If stuck.** `Step 4 first`: the three topics must exist. `images are not in the registry yet`: wait for the build from step 1 to finish.
-
-## Step 7. First signup (experiment, 20 min)
-
-**Problem.** The signup got a reply but there's no ticket yet. Where is the work in between?
-
-**Do.**
-1. Open `web`'s URL with `/login` added at the end. The email is the Google account you signed in to Cloud Shell with. **코드 받기** (get code).
-2. ☰ → **Logging → Logs Explorer**. Enter `"sign-in code for organizer"` in the query and click **Run query**. Enter the 6 digits at the end of the top line. The first time takes about 20 seconds. (`./lab code` shows the same line.)
-3. `/admin` → **새 행사 만들기** (new event). All times are Korea time.
-
-   | Field | Value |
-   |---|---|
-   | 행사 이름, 장소 (name, venue) | Anything |
-   | 주소 (address) | `wiring` |
-   | 신청 시작 (signups open) | 2 hours ago |
-   | 신청 마감 (signups close) | Tomorrow |
-   | 시작, 종료 (start, end) | The day after tomorrow |
-   | 참석 확인 마감 (confirmation deadline) | Between tomorrow and the day after |
-   | 정원, 대기 정원 (seats, waitlist) | 200, 50 |
-   | 공개 (published) | Ticked |
-
-   Later events list only the values that differ. **If 공개 (published) isn't ticked, the signup page won't open.**
-
-4. Sign up at `/events/wiring`.
-
-**Predict.** What will the ticket page show?
-
-**Where to look.** ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Messages** tab → **Pull**. Pull with **Enable ack messages** unticked.
-
-**Check.** The ticket stays at **티켓 발급 중** (issuing ticket). One `{"registration_id": ...}` message is waiting in the subscription.
-
-**Why.** `web` saved the seat in Firestore, left a message, and replied at once. A pull subscription only holds the message until someone pulls it. The message isn't lost.
-
-> **Optional:** the waiting message and the ticket page showing 티켓 발급 중
-
-**If stuck.** If no code appears, run the query again after 30 seconds. `mail_off` error: the email you entered at `/login` differs from `ADMIN_EMAILS` (`./lab env web`).
-
----
-
-# D2. Background work and failures
-
-## Step 8. Pull → push (by hand, deliberate failure, 20 min)
-
-**Problem.** If messages only wait, tickets never come out. The subscription has to send messages to `ticket-worker`.
-
-**Do.**
-1. ☰ → **Cloud Run** → copy `ticket-worker`'s **URL**.
+1. ☰ → **Cloud Run → Services** → copy the **URL** of `ticket-worker`.
 2. ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Edit**.
-3. **Delivery type**: **Push**. **Endpoint URL**: the URL you copied.
-4. Leave **Enable authentication** **unticked** and click **Update**.
+3. **Delivery type**: **Push**. **Endpoint URL**: the URL you copied. Leave **Enable authentication** **unticked** → **Update**.
 
-**Predict.** Will the ticket come out now?
+**Predict.** Will the ticket appear now?
 
-**Where to look.** ☰ → **Cloud Run** → `ticket-worker` → **Observability → Logs**.
+**Where to look.** ☰ → **Cloud Run** → `ticket-worker` → **Observability** tab, logs.
 
-**Check.** `403` and `The request was not authenticated` repeat. Once you see it 2 or 3 times, take the screenshot (**Submit 1**) and fix it right away (after 5 failures the message moves to `dead-letter`).
-1. Subscription → **Edit** → tick **Enable authentication** → service account `tickets-pubsub-push` → **Update**.
-2. Within 1 to 2 minutes, the ticket from step 7 is issued. Don't sign up again.
+**Check.** `403` and `The request was not authenticated` repeat. When you see it 2 or 3 times, take a screenshot of the log (**Submit 1**) and fix it right away. After 5 failures the message moves to `dead-letter`.
+1. Subscription → **Edit** → tick **Enable authentication** → **Service account** `tickets-pubsub-push` → **Update**.
+2. Within a minute or two, the ticket from Mission 2 is issued. Do not sign up again.
 
-`./lab check 8`
+`./lab check push`
 
-**Why.** `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub can get in. But it is set to **Require authentication**, so an unsigned request gets a 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, and this account is `ticket-worker`'s **Cloud Run Invoker** (`./lab iam`). Getting through the door (ingress) and having the right to enter (IAM) are separate.
+**Why.** `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub may come in (from the internet they get 404). But it requires authentication, so an unsigned request gets 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, which holds **Cloud Run Invoker** on `ticket-worker`. Getting through the door (ingress) and being allowed in (IAM) are separate.
 
-> **Submit 1 screenshot:** the `403` logs (before the fix), the issued ticket (after the fix)
+> **Submit 1 screenshot:** the `403` log (before the fix), the issued ticket (after)
 
-**If stuck.** If the ticket still shows 티켓 발급 중 after the fix, the message has already gone to `dead-letter`. Sign up once more. Or `./lab skip 8`.
+**Stuck?** If the ticket stays "issuing" after the fix, the message already moved to `dead-letter`. Send it back with the replay in Mission 4.
 
-## Step 9. Send the same message again (idempotency) (experiment, 10 min)
-
-**Problem.** Pub/Sub delivers messages "at least once". The same message can arrive twice.
-
-**Do.** The ticket ID is the last part of the ticket address, `/t/TICKET_ID`.
-1. ☰ → **Pub/Sub → Topics** → `registrations` → **Messages** tab → **Publish message**.
-2. Body: `{"registration_id":"TICKET_ID"}` → **Publish**.
-
-**Predict.** Will one more ticket appear?
-
-**Where to look.** `ticket-worker` → **Logs**, about 30 seconds later.
-
-**Check.** `skip TICKET_ID (status issued)`. There is still one ticket.
-
-**Why.** The receiver first checks whether the ticket was already issued. Getting the same result however many times the same work runs is idempotency (`issue` in `ticket_worker/main.py`).
-
-> **Optional:** the `skip` log
-
-## Step 10. Worker failure, retries, dead letter (experiment, 25 min)
+## Mission 4. Worker failure and dead letter (20 min)
 
 **Problem.** If the worker breaks, what happens to the people signing up?
 
 **Do.**
-1. ☰ → **Cloud Run** → `ticket-worker` → **Edit & deploy new revision** → **Variables & Secrets** → **Add variable**: `WORKER_FAIL_RATE` = `1` → **Deploy**.
-2. On the **Revisions** tab, check that the new revision has 100%.
-3. In a browser **incognito window**, open `/events/wiring` and sign up with another email.
+1. ☰ → **Cloud Run** → `ticket-worker` → **Containers** tab → **Variables & Secrets** → **Add variable**: `WORKER_FAIL_RATE` = `1`.
+2. Top right **Review changes and redeploy** → check the changed line → **Deploy changes**.
+3. In a browser **private window**, open `/events/wiring` and sign up with another email.
 
 **Predict.** Will the signup succeed? What happens to the ticket?
 
 **Where to look.**
-- `ticket-worker` → **Logs**: the gaps between 500 responses
-- ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Dead lettering** tab: the settings from step 4
-- About 3 minutes later, subscription `dead-letter` → **Messages** → **Pull** (ack unticked)
+- `ticket-worker` logs: `simulated failure` and `500`
+- Subscription `ticket-worker` → **Dead lettering** tab: where failed messages go
+- 2 to 3 minutes later, subscription `dead-letter` → **Messages** → **Pull** (**Enable ack messages** unticked)
 
-**Check.** The signup succeeds. The 500s repeat at growing intervals, then stop, and the message is in `dead-letter`. Take both screenshots before you fix it (**Submit 2**).
+**Check.** The signup succeeds. `500` repeats a few times and stops, and the message is in `dead-letter`. Take both screenshots before fixing (**Submit 2**).
 
 Now fix it.
-1. On the same screen, delete `WORKER_FAIL_RATE` and click **Deploy**. Check that the new revision has 100%.
-2. Send the failed message again.
+1. In the **Containers** tab, delete `WORKER_FAIL_RATE` → **Review changes and redeploy** → **Deploy changes**.
+2. Wait a minute, then send the failed message back (a message you pulled stays hidden for one minute).
 
    ```bash
    scripts/replay-dead-letters.sh --replay
    ```
 
-3. The ticket is issued within seconds.
+3. The ticket is issued within seconds. A few minutes later, look for `skip ... (status issued)` in the logs.
 
-**Why.** Signup and issuing are split by a message, so signups still come in while the worker is broken. Retries fix temporary failures, and the growing gaps keep a broken service from being flooded. A bug isn't fixed by retrying, so after 5 attempts a person looks at it.
+**Why.** Because signup and ticketing are split by a message, signups keep working while the worker is broken. Retries fix short failures; a failure that retries cannot fix stays in `dead-letter` after 5 tries for a person to look at. The `skip` line is the job, which runs every 5 minutes, sending the stuck ticket once more. Even when the same message arrives twice, the worker first checks "did I already issue this?", so there is still one ticket (idempotency).
 
-> **Submit 2 screenshot:** the `500` logs repeating at growing intervals, the message waiting in `dead-letter` (both before the fix)
-
-**If stuck.** If there are 2 or more messages, the job that runs every 5 minutes sent the stuck ticket again (from step 12 on). That's normal.
+> **Submit 2 screenshot:** the repeated `500` logs and the message waiting in `dead-letter` (both before the fix)
 
 ---
 
-# D3. Events and scheduled work
+# Sitting 3. Events, revisions, cold start
 
-## Step 11. Eventarc trigger (by hand, experiment, 20 min)
+## Mission 5. Cancel and events (10 min)
 
-**Problem.** When someone cancels, the seat has to go to the first person on the waitlist. Cancellations happen in several places (the person, an admin, the deadline). Instead of adding code in each place, react to the data change itself.
-
-**Do.**
-1. In ☰ → **Cloud Run → Services**, tick `waitlist-promoter` → **Permissions** → **Add principal**: `tickets-eventarc@PROJECT_ID.iam.gserviceaccount.com`, role **Cloud Run Invoker** → **Save**.
-2. ☰ → **Eventarc → Triggers** → **Create trigger**.
-
-   | Field | Value |
-   |---|---|
-   | Trigger name | `registration-changed` |
-   | Trigger type | Google sources |
-   | Event provider | **Cloud Firestore** |
-   | Event type | `google.cloud.firestore.document.v1.updated` (not the `withAuthContext` one) |
-   | Region | `asia-northeast3` (filled in automatically) |
-   | Filter 1 | `database` = `(default)` (filled in automatically) |
-   | Filter 2 (**Add filter**) | `document`, operator **Path pattern**, value `registrations/{registration}` |
-   | Service account | `tickets-eventarc` |
-   | Event destination | Cloud Run, service `waitlist-promoter`, path `/` |
-
-3. **Create**. It takes about a minute. Ignore the notice asking you to grant a Pub/Sub role.
-
-Then the experiment. New event `promo`: seats 1, waitlist 1.
-1. In the signed-in window, sign up at `/events/promo`.
-2. In the incognito window, sign up with another email. You become **대기 1번** (waitlist 1).
-3. On the first ticket page, click **신청 취소** (cancel signup).
-
-**Predict.** Who gives the seat to the waiting person, and based on what?
-
-**Where to look.** The ticket page in the incognito window, `waitlist-promoter` → **Logs**, and the `status` of the two documents in `registrations` in Firestore Studio.
-
-**Check.** Within a few seconds, the waiting person gets a ticket. `./lab check 11`.
-
-**Why.** When a cancellation changes a Firestore document, Eventarc delivers the change to `waitlist-promoter`. `web` takes no part in the waitlist. The path pattern filter keeps changes to documents outside `registrations` from arriving.
-
-> **Optional:** the trigger screen and the ticket issued to the waiting person
-
-**If stuck.** If no seat is given, look for a 403 in `waitlist-promoter`'s logs. The permission from item 1 is missing. Or `./lab skip 11`.
-
-## Step 12. Job and Cloud Scheduler (by hand, experiment, 30 min)
-
-**Problem.** Some work has to happen without anyone clicking: the confirmation deadline, reminders, preparing before the opening.
+**Problem.** When someone cancels, the first person waiting should get the seat. Cancels happen in many places: the attendee, an organizer, the deadline job.
 
 **Do.**
-1. Print the values with `./lab env job`.
-2. ☰ → **Cloud Run → Jobs** → **Deploy container**.
+1. Create an event with 1 seat and a waitlist of 1.
 
-   | Field | Value |
-   |---|---|
-   | Container image URL | The `image:` line of `./lab env job` |
-   | Job name | `housekeeping` |
-   | Region | `asia-northeast3` |
-   | Number of tasks | 1 |
-   | Container → **Task capacity** | Task timeout 4 minutes, number of retries per failed task 0 |
-   | Container → **Variables & Secrets** | Paste the block from `./lab env job` into the first Name box |
-   | **Security** tab | Service account `tickets-housekeeping` |
-   | Execute job immediately | Unticked |
+   ```bash
+   ./lab event promo --seats 1 --waitlist 1
+   ```
 
-   **Create**.
-3. In ☰ → **Cloud Run → Jobs**, tick `housekeeping` → **Permissions** → **Add principal**: `tickets-scheduler@PROJECT_ID.iam.gserviceaccount.com`, role **Cloud Run Invoker** → **Save**. On a job, this role means "may run it".
-4. `housekeeping` → **Triggers** tab → **Add scheduler trigger**.
-   - Name `housekeeping` (delete the suggested name)
-   - Region `asia-northeast3`
-   - Frequency `*/5 * * * *`
-   - Timezone: search for `South Korea` → **Korean Standard Time (KST)**. `Seoul` and `Korea` find nothing.
-   - **Continue** → service account `tickets-scheduler` → **Create**.
-5. ☰ → **Cloud Scheduler** → the `housekeeping` row's menu → **Force run**.
+2. Sign up for `/events/promo` in a normal window. Sign up again with another email in a private window; that one is **waitlist #1**.
+3. On the first ticket page, click **Cancel registration**.
 
-**Predict.** Will the job succeed?
+**Predict.** Who gives the seat to the waiting person, and what triggers it?
 
-**Where to look.** ☰ → **Cloud Run → Jobs** → `housekeeping` → **History** tab → open the execution and its **Logs**.
+**Where to look.** The private window's ticket page, `waitlist-promoter` logs, and the `status` of both documents in Firestore Studio → `registrations`.
 
-**Check.** The execution shows as **Failed**, and the logs have `pre-warm failed` and a 403. The job has no permission to read `web`'s settings. You fix this in step 13. The rest of the work (deadline, repair) ran as usual. `./lab check 12`.
+**Check.** The waiting person gets a ticket within seconds.
 
-**Watch the deadline release.** New event `deadline`: seats 1, waitlist 1.
-1. Sign up in the signed-in window. **Don't click 참석 확인 (confirm attendance).**
-2. In the incognito window, sign up with another email. 대기 1번 (waitlist 1).
-3. `housekeeping` → the arrow next to **Execute** at the top → **Execute with overrides** → container arguments `--force-release` → **Execute**.
+**Why.** The cancel changes a Firestore document; Eventarc delivers that change to `waitlist-promoter`. `web` knows nothing about the waitlist. Because the system reacts to the data change itself, a cancel from anywhere is handled in one place. If delivery fails, the job that runs every 5 minutes fills free seats anyway: events for speed, a periodic sweep for correctness.
 
-**Check.** The first seat is released, and a few seconds later the waiting person gets a ticket. Unconfirmed seats of other events are released too (fine for lab data).
+> **Optional:** the waiting person's issued ticket and the `waitlist-promoter` log
 
-**Why.** A job ends when its work is done. It doesn't wait for requests, so it is a job and not a service. The real deadline release returns a seat only after the confirmation reminder email has gone out. In the lab, email is off, so `--force-release` ran just the deadline release at once. Eventarc delivered the Firestore document the job changed, and the seat went to the waiting person. Scheduled work and an event worked one after the other.
-
-> **Optional:** the job's execution history, the ticket of the waiting person who got the released seat
-
-**If stuck.** If the Scheduler run shows `PERMISSION_DENIED`, check the permission in item 3. If you can't find the timezone, search for `South Korea`. Or `./lab skip 12`.
-
-## Step 13. `./lab warmup` (shortcut, explain, 10 min)
-
-**Problem.** Right before signups open, the job has to raise `web`'s minimum instances so the first people don't wait (step 25). The 403 in step 12 came from this missing permission.
+## Mission 6. Revisions and rollback (15 min)
 
 **Do.**
+1. ☰ → **Cloud Run** → `web` → **Containers** tab → **Add variable**: `LAB_NOTE` = `v2`.
+2. **Review changes and redeploy** → **untick** **Serve this revision immediately** at the bottom → **Deploy changes**.
+3. `web` → **Revisions** tab.
+
+**Predict.** How many users see the new revision?
+
+**Check.** There is a new revision with 0% of traffic.
+
+4. **Revisions** → **Manage traffic**: new revision 50%, previous revision 50% → **Save**.
+5. See which revision answers, ten times.
+
+   ```bash
+   URL=$(gcloud run services describe web --region asia-northeast3 --format='value(status.url)')
+   for i in $(seq 10); do curl -sI "$URL/health" | grep -i x-served-by; done
+   ```
+
+   Both revision names appear. Take the screenshot (**Submit 3**).
+6. Roll back: in **Manage traffic**, set the previous revision to 100% → **Save**. Now only one name appears.
+7. Finally, set the latest revision back to 100%.
+
+**Why.** Every deploy creates a new revision, and how much traffic it gets is a separate decision. A rollback just moves traffic back to a revision that already exists, with no build, so it takes seconds. The automatic deploy in Mission 9 uses the same idea to keep broken versions away from users.
+
+> **Submit 3 screenshot:** the **Revisions** tab split 50/50 and the `curl` output
+
+## Mission 7. Cold start and pre-warm (25 min, including waiting)
+
+**Cold start.** Do this first in the sitting, when the site has not been opened for more than 15 minutes.
 
 ```bash
-./lab warmup
+./lab coldstart
 ```
 
-What it creates: the custom role `webScaler` (read and update the service, those two permissions only), that role on the `web` service alone, and permission to act as `tickets-web` (act-as).
+**Predict.** How different are the first request and the ones after it?
 
-<details>
-<summary>Do it in the Console</summary>
+**Check.** The first request takes seconds; the next ones under 0.1 s. Write both in the measurement table.
 
-1. ☰ → **IAM & Admin → Roles** → **Create role**. Title `Change web's scaling`, ID `webScaler`, and add only two permissions: `run.services.get`, `run.services.update`. **Create**.
-2. In ☰ → **Cloud Run → Services**, tick `web` → **Permissions** → **Add principal**: `tickets-housekeeping`, role **Change web's scaling** → **Save**.
-3. ☰ → **IAM & Admin → Service Accounts** → `tickets-web` → **Principals with access** → **Grant access**: `tickets-housekeeping`, role **Service Account User** → **Save**.
-</details>
+**Pre-warm.**
+1. Create an event whose signups open in 20 minutes.
 
-**Predict.** Will a forced run succeed now?
+   ```bash
+   ./lab event opening --opens-in 20
+   ```
 
-**Where to look.** **Force run** in Cloud Scheduler → the job's **History**.
+2. ☰ → **Cloud Scheduler** → tick the `housekeeping` row → **Force run**, so the job runs now instead of in up to 5 minutes.
+3. ☰ → **Cloud Run → Jobs** → `housekeeping` → **History** tab → the run you just started → logs.
 
-**Check.** The execution succeeds. `./lab check 13`.
+**Predict.** What will the job do to `web`?
 
-**Why.** Cloud Run has no permission for "change only the minimum instances", so you made a role with just the two permissions needed. But on every change to a service, Cloud Run also asks for permission to act as that service's account (act-as). act-as also allows deploying new code as that account, so it is a deliberate exception to least privilege. That's why the scope is narrowed to this one job and this one account.
+**Check.** The log says `pre-warm: web minimum instances 0 → 3`. In `web` → **Observability**, the instance count graph shows 3 instances. An hour after the opening, the job sets it back to 0.
+
+**Why.** With 0 instances, the first request waits for a container to start. Scaling to zero means no cost at night; the price is a slow first request. When the opening time is known, the job starts instances in advance. The wait disappears, but you pay while no requests come in. The job may change `web`'s setting only because of a custom role with exactly two permissions (read and update) (`./lab iam`, `housekeeping`).
+
+> **Submit 4 screenshot:** the `./lab coldstart` output and the graph with 3 instances up before the opening
 
 ---
 
-# D4. Safe changes
+# Sitting 4. The rush and deploys
 
-## Step 14. Your GitHub copy (by hand, 10 min)
-
-**Problem.** To test and deploy automatically when the code changes, you need a repository you can push to.
+## Mission 8. The rush (25 min)
 
 **Do.**
-1. [github.com/joyrla/gdgoc-tickets-lab](https://github.com/joyrla/gdgoc-tickets-lab) → **Use this template** → **Create a new repository**.
-2. Owner: your personal account (not an organization). Name `gdgoc-tickets`. **Private**. **Create repository**.
-3. Check that the new repository's **Actions** tab opens.
-4. In Cloud Shell, move to the copy. From now on, work in this folder.
+1. Create an event that opens in 3 minutes (100 seats, waitlist 50) and start the load test right away. 300 visitors wait before the opening and sign up the moment it opens.
 
    ```bash
-   cd ~
-   gh repo clone YOUR_GITHUB_USERNAME/gdgoc-tickets
-   cd gdgoc-tickets
-   ./lab check 14
+   ./lab event rush-a --opens-in 3 --seats 100 --waitlist 50
+   ./lab load rush-a
    ```
 
-**Predict.** Why make it from the template and not as a fork?
+**Predict.** How many instances will there be at most? Will more than 100 tickets be issued?
 
-**Check.** `./lab check 14` shows `ok`.
+**Where to look.** (graphs appear 3 to 5 minutes late)
+- `web` → **Observability**: instance count, request latency
+- Subscription `ticket-worker` → **Metrics**: unacked messages
+- Firestore Studio → `event_counts` → `rush-a`: `held` (registrations holding a seat) and `issued` (tickets issued)
 
-**Why.** A fork starts with Actions turned off and stays tied to the original repository. A template copy is an independent repository. The lab settings (`~/.gdgoc-lab`) are kept apart from the folder, so `./lab` works the same in the new folder.
+**Check.** Locust's `Signups:` line and response-time table, and `held` = `issued` = 100. Write them in the measurement table and take the screenshots (**Submit 5**). Because the event opens within minutes, pre-warm (Mission 7) may have started 3 instances first; look at how many more the graph shows above those 3.
 
-**If stuck.** `./lab skip 14` creates the copy and clones it to `~/gdgoc-tickets`.
+2. Measure again with another concurrency. `web` → **Containers** tab → **Maximum concurrent requests per instance** `2` → **Review changes and redeploy** → **Deploy changes**.
 
-## Step 15. Keyless sign-in (by hand, shortcut, 35 min)
+   ```bash
+   ./lab event rush-c --opens-in 1 --seats 100 --waitlist 50
+   ./lab load rush-c --users 150 --minutes 3
+   ```
 
-**Problem.** To deploy, GitHub Actions has to sign in to Google Cloud. If a key file is kept in GitHub and leaks, anyone can deploy with it.
+3. When it ends, set concurrency back to `40`.
+
+**Predict.** With half the visitors, will there be more instances than the first time, or fewer?
+
+**Why.** Cloud Run adds instances by looking at concurrent requests per instance. With lower concurrency, the same load needs more instances. Every signup changes the event's single seat-counter document in a transaction, so seats are exact, but signups per second have a ceiling. More instances do not move that ceiling.
+
+> **Submit 5 screenshot:** `web`'s instance count graph and the Locust result (`Signups:` line and response-time table)
+
+## Mission 9. Deploy from GitHub (30 min)
 
 **Do.**
-1. Print the values. The repository ID (a number) is here.
+1. Create your GitHub copy and the keyless sign-in.
 
    ```bash
-   ./lab env github
+   ./lab github
+   cd ~/gdgoc-tickets
    ```
 
-2. ☰ → **IAM & Admin → Workload Identity Federation** → create a pool.
-   - Name `github` → **Continue**
-   - Select a provider **OpenID Connect (OIDC)**, provider name `gdgoc-tickets`, issuer URL `https://token.actions.githubusercontent.com`, audiences **Default audience** → **Continue**
-   - Provider attributes (Google on the left, OIDC on the right), 4 rows:
+   The last line of the output is `Sign-in test passed`.
+2. In your copy: **Settings → Secrets and variables → Actions → Variables** → **New repository variable**: `DEPLOY_ENABLED` = `true`.
+3. Add code that fails only on Cloud Run. Open it with `cloudshell edit web/events.py` and add two lines at the top of the `home` function.
 
-     | Google | OIDC |
-     |---|---|
-     | `google.subject` | `assertion.sub` |
-     | `attribute.repository` | `assertion.repository` |
-     | `attribute.repository_id` | `assertion.repository_id` |
-     | `attribute.ref` | `assertion.ref` |
-
-   - **Add condition**: the `attribute condition` line of `./lab env github` → **Save**
-3. Pool `github` → **Grant access** → **Grant access using Service Account impersonation** → service account `tickets-deployer` → **Only identities matching the filter**: attribute name `repository_id`, value the repository ID → **Save** → **Dismiss** the dialog.
-4. Give the deploy account its permissions.
+   ```python
+       if get_settings().on_cloud_run:  # only on Cloud Run, so the tests still pass
+           raise RuntimeError("deliberate failure")
+   ```
 
    ```bash
-   ./lab deployer
+   git add web && git commit -m "Break on Cloud Run" && git push
    ```
-
-   <details>
-   <summary>Do it in the Console</summary>
-
-   - In ☰ → **Artifact Registry → Repositories**, tick `gdgoc-tickets` → **Permissions** → **Add principal**: `tickets-deployer`, **Artifact Registry Writer**.
-   - ☰ → **IAM & Admin → IAM** → **Grant access**: `tickets-deployer`, **Cloud Run Developer**.
-   - In ☰ → **IAM & Admin → Service Accounts**, for each of `tickets-web`, `tickets-ticket-worker`, `tickets-waitlist-promoter`, `tickets-housekeeping` → **Principals with access** → **Grant access**: `tickets-deployer`, **Service Account User**.
-   </details>
-
-5. Your GitHub copy → **Settings → Secrets and variables → Actions** → **Variables** tab → **New repository variable**, 3 times: `GCP_PROJECT_ID`, `WIF_PROVIDER`, `DEPLOYER_SA` from `./lab env github`.
-6. **Actions** tab → **Sign-in test** on the left → **Run workflow** → Branch `main` → **Run workflow**.
-
-**Predict.** If someone else runs the same workflow in their own repository, can they sign in to your project?
-
-**Where to look.** The run's **Signed in as the deployer** step, and ☰ → **IAM & Admin → Workload Identity Federation** → `github` → the provider's condition.
-
-**Check.** A green check, and `tickets-deployer@...` is printed. `./lab check 15`.
-
-**Why.** GitHub gives each run a short-lived token. It contains the repository ID and the branch. Google Cloud accepts only tokens that match the condition (your repository ID, `main`) and exchanges them for `tickets-deployer`'s access. A repository name can be deleted and created again, but an ID can't, so the ID is used. No key is stored anywhere.
-
-> **Submit 3:** no screenshot. Step 15 in `./lab check --report` is the evidence; answer the question only.
-
-**If stuck.**
-
-| Error | Cause |
-|---|---|
-| `unauthorized_client`, `rejected by the attribute condition` | The repository ID in the condition, or a run from a branch other than `main` |
-| `Permission 'iam.serviceAccounts.getAccessToken' denied` | The grant in item 3, or the ID in its filter |
-| `run.services.list` denied | `./lab deployer` in item 4 |
-
-Or `./lab skip 15`.
-
-## Step 16. Turn on deploys (experiment, 15 min)
-
-**Problem.** If you deploy by hand every time the code changes, mistakes happen, and the site can stop during a deploy.
-
-**Do.**
-1. Add `DEPLOY_ENABLED` = `true` to **Variables** in your GitHub copy.
-2. In Cloud Shell (`~/gdgoc-tickets`):
-
-   ```bash
-   git commit --allow-empty -m "First deploy" && git push
-   ```
-
-3. **Actions** → the run you just started → go through the steps of the `deploy` job in order.
-
-**Predict.** After the new revision is up, will the event and signup from step 7 still be there?
-
-**Where to look.** ☰ → **Cloud Run** → `web` → **Revisions** tab: revisions, traffic shares, image tag.
-
-**Check.** The new revision comes up at 0%, is checked, then goes to 100%. The image tag is the commit SHA. The signup at `/events/wiring` is still there. `./lab check 16`.
-
-**Why.** The server remembers nothing and the data is in Firestore, so nothing is lost when the revision changes (step 2). Each deploy is a new revision, and it gets traffic only after it passes the check.
-
-## Step 17. Code that fails a test (experiment, 10 min)
-
-**Do.**
-
-```bash
-echo -e '\n\ndef test_broken():\n    assert 1 == 2' >> tests/test_service.py
-git add tests && git commit -m "Break a test" && git push
-```
-
-**Predict.** Will this code be deployed?
-
-**Where to look.** The run in **Actions**, and `web`'s **Revisions** tab.
-
-**Check.** `test` fails and `deploy` doesn't run. The revision stays the same. Undo it.
-
-```bash
-git revert --no-edit HEAD && git push
-```
-
-**Why.** Code that fails the tests doesn't even get an image.
-
-> **Optional:** the failed run
-
-## Step 18. Code that fails only on Cloud Run (experiment, 20 min)
-
-**Do.** Open the file with `cloudshell edit web/events.py`, and add two lines at the top of the `home` function.
-
-```python
-    if get_settings().on_cloud_run:  # only on Cloud Run, so the tests still pass
-        raise RuntimeError("deliberate failure")
-```
-
-```bash
-git add web && git commit -m "Break on Cloud Run" && git push
-```
 
 **Predict.** Will the site go down?
 
-**Where to look.** The `deploy` steps in **Actions**, and `web`'s **Revisions** tab.
+**Where to look.** Your copy's **Actions** → the new run → the steps of the `deploy` job, and `web`'s **Revisions** tab.
 
-**Check.** **Smoke test web's new revision** fails and **Put everything back** runs. The new revision stays at 0%, and the site keeps working. Take a screenshot of the **Revisions** tab now (**Submit 4**).
+**Check.** The new revision starts at 0%, fails at **Smoke test web's new revision**, and **Put everything back** runs. The site keeps working.
 
-Undo it, then roll back by hand in the Console.
-1. `git revert --no-edit HEAD && git push`, and wait for the deploy to finish.
-2. `web` → **Revisions** → **Manage traffic**. Skip the top one (just deployed) and the one below it (broken), and set the healthy revision below those to 100% → **Save**.
-3. Check which revision answered with `curl -sI SITE_URL/health | grep -i x-served-by`.
-4. On the same screen, set the latest revision back to 100%.
-
-**Why.** A new revision comes up with 0% traffic and is checked at its own address first. A rollback only moves traffic to a revision that already exists, with no build, so it takes seconds.
-
-> **Submit 4 screenshot:** the **Revisions** tab before you revert (the broken revision at 0%, the previous one at 100%)
-
-**If stuck.** If `lint` or `test` failed, check the indentation of the two lines you pasted.
-
-## Step 19. A version that can't start (experiment, 10 min)
-
-**Do.**
-1. `web` → **Edit & deploy new revision** → container → **Settings** → **Container command**: `/bin/false`.
-2. Untick **Serve this revision immediately** at the bottom → **Deploy**.
-
-**Predict.** Will this revision become ready?
-
-**Where to look.** `web`'s **Revisions** tab, and the container's **Health checks** (startup check).
-
-**Check.** A revision with a failure mark appears, and its traffic is 0%. It couldn't answer `/health`, so it didn't pass the startup check.
-
-**You must undo this.** Otherwise the next deploy uses the same command. **Edit & deploy new revision** → clear **Container command** → tick **Serve this revision immediately** → **Deploy**.
-
-<details>
-<summary>Do it with commands</summary>
-
-```bash
-gcloud run services update web --region asia-northeast3 --command=/bin/false --no-traffic --tag broken
-gcloud run services update web --region asia-northeast3 --command=""
-gcloud run services update-traffic web --region asia-northeast3 --to-latest --remove-tags broken
-```
-</details>
-
-> **Optional:** the **Revisions** tab with the failed revision
-
----
-
-# D5. Operations
-
-## Step 20. Check access control (experiment, 10 min)
-
-**Predict.** If you know `ticket-worker`'s address, can you call it from the internet? If you know a QR file's address, can anyone see it?
-
-**Do.**
-
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' "$(gcloud run services describe ticket-worker --region asia-northeast3 --format='value(status.url)')/"
-```
-
-In ☰ → **Cloud Storage → Buckets** → `PROJECT_ID-assets` → `tickets/`, copy one file name.
-
-```bash
-curl -s -o /dev/null -w '%{http_code}\n' "https://storage.googleapis.com/PROJECT_ID-assets/tickets/FILE_NAME"
-```
-
-**Check.** The first prints `404`, the second `403`.
-
-**Why.** The 404 comes from ingress **Internal**. Requests from the internet don't reach the service. The 403 is because the bucket is private. A QR can be seen only through `web`.
-
-> **Optional:** the two outputs
-
-## Step 21. Follow a request in the logs (experiment, 15 min)
-
-**Do.** Pick the **code** on one ticket page (for example `CEJ-N45`). In ☰ → **Logging → Logs Explorer**, enter `"TICKET_CODE"` with the double quotes → **Run query**.
-
-**Predict.** How many services' logs will appear?
-
-**Check.** `signup` from `web` and `issued ticket` from `ticket-worker`. That is the path one signup took through several services. For a ticket from step 11, `waitlist-promoter` appears too.
-
-Then, in `web` → **Observability → Metrics**, look at **Request count** and **Request latencies**.
-
-**Why.** With many parts, you need records to find a cause. Every service logs the same code, so one search connects them.
-
-> **Optional:** the Logs Explorer result
-
-## Step 22. Cold start (experiment, 25 min, including 16 min of waiting)
-
-**Do.** Change three values for the load test. For each one, **Edit & deploy new revision** → **Deploy**.
-
-| Where | Environment variable | Value | Reason |
-|---|---|---|---|
-| `web` | `SIGNUPS_PER_MINUTE_PER_IP` | `5000` | All load-test requests come from one Cloud Shell address |
-| `ticket-worker` | `WORKER_DELAY_MS` | `2000` | A 2-second delay per ticket, so a queue builds up |
-| Job `housekeeping` (**View and edit job configuration**) | `PREWARM_INSTANCES` | `0` | Pre-warming off, to see autoscaling |
-
-After changing the job, click **Execute** once.
-
-**Close every browser tab with the site open, and wait at least 16 minutes.** Then:
-
-```bash
-URL=$(gcloud run services describe web --region asia-northeast3 --format='value(status.url)')
-scripts/latency.sh "$URL/health" 5
-```
-
-**Predict.** How different will the first request's time be from the later ones?
-
-**Where to look.** The output, and the stretch at 0 in `web`'s **Container instance count** graph.
-
-**Check.** The first request takes a few seconds, later ones under 0.1 seconds. Write them in the measurement table.
-
-**Why.** With 0 instances, the first request waits for the container to start and the Python modules to load. It is the price of scaling to zero. **Startup CPU boost** shortens this time.
-
-## Step 23. When signups rush in (experiment, 25 min)
-
-**Do.** New event `rush-a`: signups open **3 minutes from now**, seats 100, waitlist 50. Run this right away. The visitors gather before the opening and sign up within 1 second when the countdown ends.
-
-```bash
-URL=$(gcloud run services describe web --region asia-northeast3 --format='value(status.url)')
-locust -f loadtest/locustfile.py --headless --host "$URL" --event-id rush-a --burst --users 300 --spawn-rate 10 --run-time 6m
-```
-
-**Predict.** How many instances will it grow to? Will more than 100 seats be issued?
-
-**Where to look.** (The graphs appear 3 to 5 minutes late.)
-- `web` → **Metrics** → **Container instance count**
-- ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Metrics** → unacked messages
-- Firestore Studio → `event_counts` → `rush-a`: `held` (signups holding a seat) and `issued` (issued tickets)
-
-**Check.**
-- Locust's `Signups:` line, and the POST row of the response time table (50% and 95%)
-- After the queue empties, `held` = `issued` = 100
-- The highest number of signups per second:
-
-  ```bash
-  gcloud logging read 'jsonPayload.event="signup" AND jsonPayload.event_id="rush-a" AND (jsonPayload.result="pending" OR jsonPayload.result="waitlisted")' --freshness=30m --limit=5000 --format='value(timestamp)' | cut -c1-19 | sort | uniq -c | sort -rn | head -3
-  ```
-
-**Why.** Cloud Run adds instances based on concurrent requests per instance and CPU. Each signup updates one document, the event's seat counter, in a transaction. Updates to the same document at the same time are handled one after another, so the seats are exact, but signups per second have a limit. That limit is the value you measured.
-
-> **Submit 5 screenshot:** `web`'s **Container instance count** graph, the Locust result (the `Signups:` line and the response time table)
-
-## Step 24. Concurrency 2 (experiment, 15 min)
-
-**Do.**
-1. `web` → **Edit & deploy new revision** → **Maximum concurrent requests per instance** `2` → **Deploy**. Check that the new revision has 100%.
-2. New event `rush-c`: signups open **in 1 minute**, seats 100, waitlist 50.
+4. Undo it and watch a good deploy.
 
    ```bash
-   locust -f loadtest/locustfile.py --headless --host "$URL" --event-id rush-c --burst --users 150 --spawn-rate 10 --run-time 3m
+   git revert --no-edit HEAD && git push
    ```
 
-3. When it ends, set the concurrency back to `40` and click **Deploy**.
+   The new revision passes its checks at 0%, then gets 100%. Its image tag is the commit SHA.
+5. Test the keyless sign-in rule: try to sign in from a branch that is not `main`.
 
-**Predict.** With half the visitors, will there be more or fewer instances than in step 23?
+   ```bash
+   git switch -c try-branch && git push -u origin try-branch
+   ```
 
-**Check.** After 3 to 5 minutes, compare **Container instance count** with step 23.
+   **Actions** → left **Sign-in test** → **Run workflow** → Branch `try-branch` → **Run workflow**. Take a screenshot of the failure (**Submit 6**). Then `git switch main && git push origin --delete try-branch`.
 
-**Why.** If each instance takes fewer requests, the same load needs more instances. Concurrency is a choice between cost and response time.
+**Why.** For every run GitHub issues a short-lived token that contains the repository ID and the branch. Google Cloud accepts only tokens that match the rule (your repository ID, `main`) and exchanges them for `tickets-deployer`'s permissions. So no key is stored in GitHub, and other repositories or branches cannot deploy. A deploy puts the new revision at 0%, checks it, and only then sends traffic; if the check fails, traffic stays on the previous revision.
 
-> **Optional:** the instance graph at concurrency 2
-
-## Step 25. Turn on pre-warming (experiment, 20 min)
-
-**Do.**
-1. Job `housekeeping` → **View and edit job configuration** → set `PREWARM_INSTANCES` to `3` → **Update**.
-2. New event `rush-b`: signups open **10 minutes from now**, seats 100, waitlist 50.
-3. **Execute** the job. When it finishes, refresh `web`'s **YAML** tab and find `run.googleapis.com/minScale: '3'`.
-4. 3 minutes before signups open, run the `locust` command from step 23 with `--event-id rush-b`.
-
-**Predict.** Compared with step 23, how will the instance count and response time differ?
-
-**Check.** Fill in the two columns of the measurement table.
-
-**Why.** When you know the opening time, you can start instances ahead of time. The wait disappears, but you pay even while there are no requests.
-
-> **Submit 6 screenshot (1 of 2):** `web`'s **Container instance count** graph, showing the 3 instances running before the opening
+> **Submit 6 screenshot:** the failed Sign-in test on `try-branch` (`rejected by the attribute condition` or similar)
 
 ---
 
-# D6–7. Wrap-up
+# Sitting 5. Email, cost, wrap-up
 
-## Step 26. Cost and pausing (by hand, 15 min)
+## Mission 10. Real email and secrets (20 min)
 
-**Problem.** What costs money even when nobody visits?
+Until now email was off, and every email the app would send was a "not sent" log line. Use the **mail key** and the **sender address** your instructor sent you in a private message. Treat the key like a password: never put it in chat, code or a screenshot.
 
 **Do.**
-1. ☰ → **Billing → Reports**. Filter by project and group by service.
-2. `web` → **Metrics** → **Billable container instance time**.
-3. Stop the job: ☰ → **Cloud Scheduler** → `housekeeping` → **Pause**.
-4. Turn off deploys: set `DEPLOY_ENABLED` in GitHub **Variables** to `false`.
+1. ☰ → **Security → Secret Manager** → `smtp-password` → **Versions** tab → **New version** → paste the mail key as the value → add it.
+2. `mail-from` → **New version** → the sender address → add it.
+3. Turn email on.
 
-The single line `./lab pause` also does 3 and 4.
+   ```bash
+   ./lab mail on
+   ```
 
-**Check.** `./lab check --report`. The result is saved to `~/lab-report.txt`.
+4. At `/login`, request a code for your own email. The code now arrives in your inbox instead of the logs.
+5. Sign up for `/events/wiring` once more with your own email. A signup email and a ticket email arrive.
 
-**Why.** With no requests, services scale to 0 and cost nothing. The job runs every 5 minutes, 288 times a day, so you pause it. Don't delete the project. In the next session (Terraform), you bring what you built by hand into code.
+**Predict.** Can `web` read the mail key?
 
-> **Submit 6 screenshot (2 of 2):** the billing report (filtered to the project, grouped by service)
+**Where to look.** `smtp-password` → **Permissions** tab. Where the secrets are attached in the **Containers** tab of `ticket-worker` and of `web`.
 
-## Step 27. Submission and review interview
+**Check.** Only `tickets-ticket-worker` can read the key. `./lab check mail`.
 
-Submit the items below in the announced form, and book a 10-minute review interview. In the interview, the study lead breaks one thing, and you find it in the logs, fix it and explain it.
+**Why.** A third-party key goes in Secret Manager, not in code or a plain variable. To change the key you add a new version, and the service reads it when it starts. The permission is on this one secret and for the one worker that sends mail, so even if `web` were compromised, the mail key would not leak. The load test's `@example.com` addresses are a domain reserved for tests, so no email goes to them even with mail on.
+
+> **Optional:** the code email in your inbox (hide the code) and the **Permissions** tab of `smtp-password`
+
+## Mission 11. Cost and pause (15 min)
+
+**Do.**
+1. ☰ → **Billing → Reports**. Filter by your project and group by service. Costs appear about a day late.
+2. See how your Console changes differ from the code.
+
+   ```bash
+   ./lab drift
+   ```
+
+3. Pause the lab.
+
+   ```bash
+   ./lab pause
+   ./lab check --report
+   ```
+
+**Why.** With no requests, the services scale to zero and cost nothing. The job runs every 5 minutes, 288 times a day, so it is paused. The differences `./lab drift` shows are where the next session (Terraform) starts: changes made in the Console are not in the code, and re-applying the code (`./lab up`) removes them. Do not delete the project.
+
+> **Optional:** the billing report (filtered by project, grouped by service)
 
 ---
 
 # Submission
 
-Upload these to the survey announced in step 27. **Required** parts are graded; **optional** parts are not.
+Upload to the announced survey. **Required** items are graded; **optional** ones are not.
 
 ## Required 1. Six core concepts
 
-Each concept has one question and, except concept 3, a screenshot. Take the screenshots at the **Submit 1** to **Submit 6** cues in the steps. Three to five sentences per answer is enough.
+One screenshot and one question per concept. Three to five sentences per answer is enough.
 
-**Points:** 3 per concept. 1 for the screenshot, 2 for the answer (1 for a right answer, 2 if you also give the reason, based on your own screenshot or measurement).
+**Scoring:** 3 points per concept. Screenshot 1 point, answer 2 points (1 for a correct answer, 2 if the reason is backed by your own screenshot or measurements).
 
-**1. Service accounts and IAM (step 8)**
-- Screenshot: the `403` in `ticket-worker`'s logs (before the fix), the issued ticket (after the fix)
-- Question: which setting let the request in, and which setting refused it with 403? Which account, with which role, let it through?
+**1. Service accounts and IAM (Mission 3)**
+- Screenshot: **Submit 1**. The `403` in the `ticket-worker` log (before), the issued ticket (after)
+- Question: Which setting let the request in, and which one refused it with 403? Which account's which role let it through?
 
-**2. Pub/Sub and asynchronous work (step 10)**
-- Screenshot: the `500` logs repeating at growing intervals, the message waiting in `dead-letter`
-- Question: while the worker was failing, what did people signing up go through, and what didn't they? Where did the message end up, and why there?
+**2. Pub/Sub and asynchronous work (Mission 4)**
+- Screenshot: **Submit 2**. The repeated `500` logs and the message waiting in `dead-letter`
+- Question: While the worker failed, what did the person signing up experience, and what did they not? Where did the message end up, and why there?
 
-**3. Keyless deploys (step 15)**
-- Screenshot: none. Step 15 in `./lab check --report` is the evidence.
-- Question: what stops someone else's repository from deploying to your project? Why don't you need to store a key in GitHub?
+**3. Revisions and safe deploys (Mission 6)**
+- Screenshot: **Submit 3**. The **Revisions** tab split 50/50 and the `curl` output
+- Question: Who sees a revision with 0% traffic? Why does a rollback take seconds?
 
-**4. Revisions and safe deploys (step 18)**
-- Screenshot: `web`'s **Revisions** tab before you revert (the broken revision at 0%, the previous one at 100%)
-- Question: why didn't the broken version reach users? Why does a rollback take only seconds?
+**4. Cold start, pre-warm, cost (Mission 7)**
+- Screenshot: **Submit 4**. The `./lab coldstart` output and the graph with 3 instances before the opening
+- Question: Why was the first request slow? How does pre-warm prevent it, and what does it cost? Name one case where pre-warm is not needed.
 
-**5. Autoscaling and concurrency (step 23)**
-- Screenshot: `web`'s **Container instance count** graph, the Locust result (the `Signups:` line and the response time table)
-- Question: how many instances did it grow to, and why? Why did signups per second stop at your value even with more instances?
+**5. Autoscaling and concurrency (Mission 8)**
+- Screenshot: **Submit 5**. The instance count graph and the Locust result
+- Question: How many instances did you get, and why? What changed at concurrency 2? Why did signups per second stop rising even with more instances?
 
-**6. Cold start, pre-warming and cost (steps 22, 25, 26)**
-- Two screenshots: step 25's **Container instance count** graph (the 3 instances before the opening), step 26's billing report
-- Question: why was the first request slow in step 22? How does pre-warming prevent it, and what does it cost? Name one case where pre-warming isn't needed.
+**6. Keyless deploy (Mission 9)**
+- Screenshot: **Submit 6**. The failed Sign-in test on `try-branch`
+- Question: What stops someone else's repository, or another branch, from deploying to your project? Why don't you need to store a key in GitHub?
 
 ## Required 2. Also hand in
 
-1. `~/lab-report.txt` (`./lab check --report` in step 26)
-2. Measurement table
+1. `~/lab-report.txt` (from `./lab check --report` in Mission 11)
+2. The measurement table
 
-   | | Step 23 (pre-warming off) | Step 25 (pre-warming on) |
+   | | Concurrency 40 (`rush-a`) | Concurrency 2 (`rush-c`) |
    |---|---|---|
-   | Maximum `web` instances | | |
-   | Signup response, median (50%) | | |
-   | Signup response, 95% | | |
-   | Seats, waitlist | | |
-   | Highest signups per second | | |
+   | Max `web` instances | | |
+   | Signup response median (50%) | | |
+   | Signup response 95% | | |
+   | Peak signups per second | | |
 
-   Cold start, first request / later requests: ____ / ____. Maximum instances at concurrency 2: ____.
+   Cold start first request / later requests: ____ / ____.
 
-3. One sentence: **What was this lab about?**
-4. Feedback survey (confidence per concept from 1 to 5, the most confusing step)
+3. One design question: **If ten times as many people signed up at the opening, what would hit its limit first, and what would you change?** Base your answer on your measurements.
+4. The feedback survey (confidence 1 to 5 per concept, the most confusing mission)
 
 ## Optional
 
-Not graded. Do every step; answer these if you like, with the step's **Optional** screenshot.
-
-| Step | Concept | Question |
+| Mission | Concept | Question |
 |---|---|---|
-| 3 | Least privilege | Pick one account in `./lab iam` and write why each of its permissions is needed |
-| 5 | Secret Manager | Why didn't `web` start at first? Why was access given on one secret, not the whole project? |
-| 7 | Pull subscription | The signup got a reply, so why was there no ticket? Where was the message? |
-| 9 | Idempotency | Why is there still one ticket when the same message arrives twice? |
-| 11 | Eventarc | Who gave the seat to the waiting person, and what started it? |
-| 12 | Job and Cloud Scheduler | Why is `housekeeping` a job and not a service? |
-| 16 | Stateless servers | Why were the events and signups still there after the new revision? |
-| 17 | CI checks | Where did the code that failed its tests stop? |
-| 19 | Startup probe | Why didn't the revision that couldn't start get traffic? |
-| 20 | Ingress and a private bucket | Which setting caused the 404, and which the 403? |
-| 21 | Logs | Which services' logs did one ticket code bring up? |
-| 24 | Concurrency | With half the visitors, why were there more instances than in step 23? |
+| 1 | Architecture | Your answers to the five questions. Which connection was hard to see in the Console? |
+| 2 | Pull subscription | The signup answered, so why was there no ticket? Where was the message? |
+| 4 | Idempotency | Why is there still one ticket when the same message arrives twice? |
+| 5 | Eventarc | Who gave the seat to the waiting person, and what started it? |
+| 7 | Jobs and Cloud Scheduler | Why is `housekeeping` a job and not a service? |
+| 10 | Secret Manager | Which account can read the mail key? What would you do if the key leaked? |
+| 11 | Drift | Where did the differences in `./lab drift` come from? |
 
-# Going further (optional, goals only)
+# Advanced (optional, goals only)
 
-If you finish early, pick one and try it. Find the method yourself.
-
-- Make a full event answer "closed" without a transaction, and measure step 23 again
+- Make a full event answer "full" without a transaction, and measure Mission 8 again
 - Split the seat counter into several documents and measure again
-- One page on why a waiting room (a queue in front of signup) or Redis would be the next step, and what each one costs
-- Add one alert that would have caught the failure in step 10 (a preview of the observability session)
+- Add one alert that would have caught Mission 4's failure
+- Find Mission 3's subscription change in the Terraform code (`infra/events.tf`) and write down how to make it in code instead of the Console
 
 # Shortcut commands
 
 | Command | What it does |
 |---|---|
-| `./lab start PROJECT_ID` | Step 1: tools, GitHub sign-in, APIs, image registry, images |
-| `./lab base` | Step 3 |
-| `./lab iam` | Who can do what, a table per account |
-| `./lab env [web\|job\|github]` | Values to paste into the Console and GitHub |
-| `./lab workers` | Step 6 |
-| `./lab code` | The latest sign-in code |
-| `./lab warmup` | Step 13 |
-| `./lab deployer` | The deploy account's permissions in step 15 |
-| `./lab check [STEP]` | Checks what you built. Without a step, checks everything |
-| `./lab check --report` | The report for submission |
-| `./lab skip STEP` | Builds a step you're stuck on for you (2, 4, 5, 8, 11, 12, 14, 15) |
-| `./lab pause` | Step 26: pauses Scheduler, turns off deploys |
-| `./lab down` | Deletes everything the lab created (after the Terraform session) |
+| `./lab up PROJECT_ID` | Build everything. Run it again to reset to the code's settings |
+| `./lab iam` | Every account's permissions and why |
+| `./lab event ID [--opens-in MINUTES] [--seats N] [--waitlist N]` | Create a published event |
+| `./lab load EVENT_ID [--users N] [--minutes M]` | Load test |
+| `./lab coldstart` | First request vs later requests |
+| `./lab github` | Your GitHub copy and keyless sign-in |
+| `./lab mail on`, `./lab mail off` | Turn real email on or off |
+| `./lab code` | The organizer sign-in code (while email is off) |
+| `./lab check [NAME]`, `./lab check --report` | Checks and the report |
+| `./lab drift` | Differences between your Console changes and the code |
+| `./lab pause` | Pause the job and deploys |
+| `./lab down` | Delete everything the lab made |

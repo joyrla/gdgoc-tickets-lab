@@ -4,7 +4,7 @@ Google Cloud 쪽 전부를 `infra/`의 Terraform이 만듭니다. 콘솔에서 �
 
 | 파일 | 만드는 것 |
 |---|---|
-| `foundation.tf` | API, 이미지 저장소(Artifact Registry), 역할별 서비스 계정 8개 |
+| `main.tf` | API, 이미지 저장소(Artifact Registry), 역할별 서비스 계정 8개 |
 | `data.tf` | Firestore(TTL, 대기 명단 인덱스, `production_extras`일 때 시점 복구와 매일 백업), 버킷 1개, Secret Manager 비밀값 4개(`ticket-secret`, `session-secret`, 비어 있는 `smtp-password`, `mail-from`) |
 | `run.tf` | Cloud Run 서비스 3개(web, ticket-worker, waitlist-promoter), 잡 1개(housekeeping) |
 | `events.tf` | Pub/Sub 토픽 2개(`registrations`, `emails`)와 push 구독 2개(`ticket-worker`, `mailer`), 공용 `dead-letter` 토픽, Eventarc Firestore 트리거, Cloud Scheduler(5분마다 housekeeping) |

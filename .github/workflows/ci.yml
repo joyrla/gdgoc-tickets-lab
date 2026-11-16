@@ -14,7 +14,7 @@
 # Identity Federation): no service-account key is stored in GitHub.
 #
 # Repository variables (Settings → Secrets and variables → Actions → Variables):
-#   GCP_PROJECT_ID   e.g. gdgoc-cloud-2026
+#   GCP_PROJECT_ID   your project ID
 #   GCP_REGION       e.g. asia-northeast3
 #   GAR_REPOSITORY   Artifact Registry repository, e.g. gdgoc-tickets
 #   WIF_PROVIDER     projects/NUMBER/locations/global/workloadIdentityPools/github/providers/gdgoc-tickets

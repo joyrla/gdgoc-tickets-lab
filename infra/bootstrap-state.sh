@@ -16,14 +16,14 @@ REGION=$(sed -n 's/^region *= *"\(.*\)"/\1/p' terraform.tfvars)
 REGION=${REGION:-asia-northeast3}
 BUCKET="$PROJECT-tfstate"
 
-# Terraform needs these before it can turn on the rest (foundation.tf) or create service accounts
+# Terraform needs these before it can turn on the rest (main.tf) or create service accounts
 gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com iam.googleapis.com --project "$PROJECT"
 
 if ! gcloud storage buckets describe "gs://$BUCKET" --project "$PROJECT" >/dev/null 2>&1; then
   gcloud storage buckets create "gs://$BUCKET" --project "$PROJECT" --location "$REGION" \
     --uniform-bucket-level-access --public-access-prevention
 fi
-gcloud storage buckets update "gs://$BUCKET" --versioning   # every apply keeps the previous state
+gcloud storage buckets update "gs://$BUCKET" --versioning --uniform-bucket-level-access --public-access-prevention   # keeps every previous state; private even if the bucket existed before
 
 printf 'bucket = "%s"\nprefix = "gdgoc-tickets"\n' "$BUCKET" > backend.hcl
 

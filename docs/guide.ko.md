@@ -502,7 +502,7 @@ Google Cloud의 모든 자원은 `infra/`에 코드로 작성되어 있고 **Ter
 
 | 파일 | 만드는 것 |
 |---|---|
-| `foundation.tf` | API, 이미지 저장소, 역할별 서비스 계정 |
+| `main.tf` | API, 이미지 저장소, 역할별 서비스 계정 |
 | `run.tf` | 서비스 세 개와 housekeeping 잡, 각 설정 |
 | `events.tf` | Pub/Sub 토픽 `registrations`, `emails`와 push 구독, 공용 `dead-letter` 토픽, Eventarc 트리거, Scheduler |
 | `iam.tf` | 누가 무엇을 할 수 있는지 |
