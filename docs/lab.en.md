@@ -6,12 +6,6 @@ You put a finished event-signup service into your own Google Cloud project, then
 2. **Connect**: connect GitHub to Google Cloud by hand in the Console, ship your first deploy as a pull request, and connect the email service.
 3. **Walkthrough**: cause signups, cancels and a rush in the app, then follow what happens through the emails that really arrive and the Console. A few things you break on purpose and fix.
 
-| | |
-|---|---|
-| Level | Introductory (200) |
-| Cost | Taken from the free trial credit. A 12,000 won budget alert is set. Real cost is a few thousand won |
-| Last checked | 2026-11-16 |
-
 **By the end you can**
 
 - Connect GitHub to Google Cloud without keys, and explain why another repository or branch is refused
