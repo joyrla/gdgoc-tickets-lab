@@ -1580,7 +1580,7 @@ def check_repo(c: Cloud, r: Result) -> None:
     r.expect(
         repo.lower() in origin.lower(),
         "this folder is your copy",
-        f"this folder's origin is {origin}; cd to your copy (step 14)",
+        f"this folder's origin is {origin}; cd ~/gdgoc-tickets (your copy, made by ./lab github)",
     )
 
 
@@ -2112,7 +2112,8 @@ def drift() -> None:
         print("\nThe live project matches the code.")
     if hidden:
         print("(Not shown: web's revision name, which every deploy sets.)")
-    print("\n./lab up applies the code again: that is the reset, and it removes these differences.")
+    if lines:
+        print("\n./lab up applies the code again: that is the reset, and it removes these differences.")
 
 
 # ---------------------------------------------------------------- main
