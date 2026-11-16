@@ -62,6 +62,21 @@ You put a finished event-signup service into your own Google Cloud project with 
 | Firestore | Events, registrations, seat counters |
 | 8 service accounts | One per part, with only the permissions it needs |
 
+## The eight key moments
+
+These are the eight moments you learn the most from. The other missions (0 setup, 1 look around, 10 email, 11 wrap-up) support them.
+
+| | Moment | Mission | What you learn |
+|---|---|---|---|
+| 1 | Follow one signup through `web` → Pub/Sub → worker → Firestore | 2 | How a whole cloud system fits together, asynchronous work |
+| 2 | Connect the queue to the worker yourself and fix the 403 | 3 | The queue keeps messages safe, ingress vs IAM |
+| 3 | Break the worker and watch retries and the dead letter | 4 | Failures are kept, not lost; idempotency |
+| 4 | Cancel and watch the waiting person get the seat | 5 | Event-driven design |
+| 5 | Split traffic to a new revision and roll back | 6 | Revisions, safe deploys, rollback in seconds |
+| 6 | Measure a cold start, then watch pre-warm before an opening | 7 | Scale to zero, cold start, cost |
+| 7 | Rush 300 visitors at once and change concurrency | 8 | Autoscaling, concurrency, where the limit is |
+| 8 | Watch broken code get stopped and another branch get refused | 9 | CI/CD, keyless deploy |
+
 ## Schedule
 
 | Sitting | Missions | Time |
@@ -121,10 +136,20 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
 **Do.** Find the answers to these five questions in the Console and write them down.
 
 1. ☰ → **Cloud Run → Services** → `web` → **Security** tab: which service account does `web` run as?
-2. `web` → **Containers** tab, variables: which topic will signup messages go to? (Hint: compare with the topic names in Pub/Sub)
+2. ☰ → **Pub/Sub → Topics** → `registrations` → **Permissions** on the right: who may send messages to this topic?
 3. ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Details**: what is the delivery type, and where does a message go after how many failures?
 4. ☰ → **Cloud Run → Services** → tick `ticket-worker` → **Permissions**: who may call `ticket-worker`? Which subscription uses that account right now? (Hint: the `mailer` subscription in Pub/Sub)
 5. ☰ → **Eventarc → Triggers** → `registration-changed`: which changes does it react to?
+
+<details>
+<summary>Check your answers</summary>
+
+1. `tickets-web`. Every service runs as its own service account.
+2. `tickets-web`, `tickets-waitlist-promoter`, `tickets-housekeeping` (Pub/Sub Publisher). Signups, waitlist promotions and resent stuck tickets all send messages to this topic.
+3. **Pull**. After 5 failures a message moves to the `dead-letter` topic. Mission 3 switches it to Push.
+4. `tickets-pubsub-push` (Cloud Run Invoker). Right now the `mailer` subscription (sign-in code emails) signs as this account to call `ticket-worker`. The `ticket-worker` subscription is still Pull, so it doesn't use it yet.
+5. A Firestore document update (`document.v1.updated`), only for documents under `registrations/`. The change goes to `waitlist-promoter`.
+</details>
 
 `./lab iam` shows every account's permissions and the reason for each in one table.
 
