@@ -65,8 +65,9 @@ def status(registration_id):
 def test_transaction_never_oversells():
     from shared import store
 
-    # 10 at once still makes transactions collide; the emulator locks harder than Firestore
-    with ThreadPoolExecutor(max_workers=10) as pool:
+    # 5 at once still makes transactions collide. The emulator locks harder than Firestore:
+    # at 10, one signup now and then used up its 20 retries and failed CI (2026-11-16)
+    with ThreadPoolExecutor(max_workers=5) as pool:
         results = list(pool.map(register, range(40)))
     ids = [r for r in results if r not in ("full", "duplicate")]
     assert results.count("full") == 20 and len(ids) == 20

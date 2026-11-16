@@ -264,6 +264,7 @@ cd ~/gdgoc-tickets
 | `./lab github`이 `not your own copy` | 미션 0의 5, 6번. 템플릿을 그대로 받은 폴더가 아니라 내 저장소 폴더에서 실행 |
 | Sign-in test가 `getAccessToken` 오류 | 권한이 퍼지는 중. 2분 뒤 다시 실행 |
 | `deploy` 작업이 건너뛰어짐 | `DEPLOY_ENABLED`가 정확히 `true`인지 |
+| `emulator` 작업이 `Transaction lock timeout`으로 실패 | 시험용 데이터베이스의 일시적인 지연. 실행 화면의 **Re-run failed jobs** |
 | `git push`가 거부됨 | `gh auth login`을 `--scopes workflow`로 했는지 |
 
 ## 미션 3. 메일 연결 (20분)

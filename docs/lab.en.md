@@ -263,6 +263,7 @@ You connect two outside services to what was built: GitHub (push code, get a dep
 | `./lab github` says `not your own copy` | Mission 0, steps 5 and 6. Run it from your repository's folder, not from a clone of the template |
 | The sign-in test fails with `getAccessToken` | The permission is still spreading. Run it again in two minutes |
 | The `deploy` job is skipped | `DEPLOY_ENABLED` must be exactly `true` |
+| The `emulator` job fails with `Transaction lock timeout` | A brief delay in the test database. **Re-run failed jobs** on the run's page |
 | `git push` is refused | Sign in again with `gh auth login --web --scopes workflow` |
 
 ## Mission 3. Connect email (20 min)
