@@ -426,7 +426,7 @@ cd ~/gdgoc-tickets
 2. `shared/models.py` 121번째 줄의 `held < self.seat_limit`을 `held <= self.seat_limit`로 바꿉니다. 정원이 찬 뒤에도 한 명 더 받는 버그입니다.
 3. 커밋 → **Publish Branch** → GitHub에서 풀 리퀘스트를 만듭니다.
 
-**확인.** 검사의 `test` 작업이 빨간색입니다. 실패한 테스트는 `test_never_oversells_under_concurrency`이고, 오류는 `assert 31 == 30`(정원 30에 31명)입니다. 병합하지 않고 **Close pull request**로 닫습니다. `main`과 사이트는 그대로입니다.
+**확인.** 검사의 `test`와 `emulator` 작업이 빨간색입니다. 빨간 표시의 설명은 `Process completed with exit code 1.`뿐이므로 `test` 작업의 로그를 엽니다. 첫 실패는 `test_never_oversells_under_concurrency`, 오류는 `assert 31 == 30`(정원 30에 31명)입니다. GitHub은 빨간 검사가 있어도 병합 버튼을 막지 않습니다(무료 계정의 비공개 저장소). 병합하지 않고 **Close pull request**로 닫습니다. `main`과 사이트는 그대로입니다.
 
 **할 일. 테스트로는 못 막는 문제 (CD)**
 4. VS Code → `main` → 새 브랜치 `wrong-port`.
@@ -435,7 +435,7 @@ cd ~/gdgoc-tickets
 
 **볼 곳.** **Actions** → `main`의 **CI/CD** → `deploy` 작업. ☰ → **Cloud Run** → `web` → **업데이트 기록** 탭.
 
-**확인.** 새 리비전이 트래픽 0%로 시작하다가 실패합니다. 실패한 단계는 **Start the new revisions with no traffic**이고, Cloud Run의 오류는 `The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable`입니다. 이어서 **Put everything back**이 실행되고 트래픽은 이전 리비전에 남습니다. 사이트는 계속 열립니다. 이때의 **업데이트 기록** 탭과 실패한 단계를 찍습니다(**제출 4**).
+**확인.** 새 리비전이 트래픽 0%로 시작하다가 실패합니다. 실패한 단계는 **Start the new revisions with no traffic**이고, 로그의 오류는 `The user-provided container failed the configured startup probe checks`입니다. 그 리비전의 로그에는 `STARTUP HTTP probe failed ... on port 8080 path "/health"`가 있습니다. Cloud Run은 8080 포트의 `/health`에 응답해야 시작된 것으로 보는데, 컨테이너는 3000에서 기다렸습니다. 이어서 **Put everything back**이 실행되고 트래픽은 이전 리비전에 남습니다. 사이트는 계속 열립니다. 이때의 **업데이트 기록** 탭과 실패한 단계를 찍습니다(**제출 4**).
 
 **할 일. 되돌리기**
 7. GitHub → 병합된 풀 리퀘스트 `wrong-port` 화면 아래 **Revert** → **Create pull request** → 검사가 초록색이면 **Merge pull request** → **Confirm merge**.

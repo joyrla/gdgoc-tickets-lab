@@ -426,7 +426,7 @@ Now fix it.
 2. In `shared/models.py`, line 121, change `held < self.seat_limit` to `held <= self.seat_limit`. The bug lets one more person in after the event is full.
 3. Commit → **Publish Branch** → open a pull request on GitHub.
 
-**Check.** The checks' `test` job is red. The failing test is `test_never_oversells_under_concurrency`, with `assert 31 == 30` (31 people for 30 seats). Do not merge: **Close pull request**. `main` and the site are unchanged.
+**Check.** The checks' `test` and `emulator` jobs are red. The red marks only say `Process completed with exit code 1.`, so open the `test` job's log: the first failure is `test_never_oversells_under_concurrency`, with `assert 31 == 30` (31 people for 30 seats). GitHub does not block the merge button even with red checks (a private repository on a free account). Do not merge: **Close pull request**. `main` and the site are unchanged.
 
 **Do. A problem the tests cannot see (CD)**
 4. VS Code → `main` → a new branch `wrong-port`.
@@ -435,7 +435,7 @@ Now fix it.
 
 **Where to look.** **Actions** → the **CI/CD** run on `main` → the `deploy` job. ☰ → **Cloud Run** → `web` → **Revisions** tab.
 
-**Check.** The new revision starts at 0% of traffic and fails. The failed step is **Start the new revisions with no traffic**, with Cloud Run's error `The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable`. Then **Put everything back** runs and traffic stays on the previous revision. The site keeps working. Take a screenshot of that **Revisions** tab and of the failed step (**Submit 4**).
+**Check.** The new revision starts at 0% of traffic and fails. The failed step is **Start the new revisions with no traffic**, with the error `The user-provided container failed the configured startup probe checks`; the revision's own log says `STARTUP HTTP probe failed ... on port 8080 path "/health"`. Cloud Run counts a container as started only when it answers `/health` on port 8080, and this one waited on 3000. Then **Put everything back** runs and traffic stays on the previous revision. The site keeps working. Take a screenshot of that **Revisions** tab and of the failed step (**Submit 4**).
 
 **Do. Undo it**
 7. GitHub → the merged pull request `wrong-port` → **Revert** at the bottom → **Create pull request** → when its checks are green, **Merge pull request** → **Confirm merge**.

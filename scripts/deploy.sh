@@ -94,8 +94,17 @@ rollback() {
     echo "Putting $name back on $previous"
     if [ "$name" = housekeeping ]; then
       gcloud run jobs update housekeeping --quiet --region "$REGION" --image "$previous" || failed=1
-    else
-      gcloud run services update-traffic "$name" --quiet --region "$REGION" --to-revisions "$previous" || failed=1
+    elif ! gcloud run services update-traffic "$name" --quiet --region "$REGION" --to-revisions "$previous"; then
+      # When the new revision never started (for example, its container listens on the wrong
+      # port), Cloud Run reports the service as not ready until the next good deploy, so this
+      # command fails although no traffic moved. What counts is that the previous revision
+      # still serves everything.
+      if gcloud run services describe "$name" --region "$REGION" --format json |
+        jq -e --arg rev "${previous%%=*}" '.status.traffic[] | select(.revisionName == $rev and .percent == 100)' >/dev/null; then
+        echo "$name still serves ${previous%%=*} at 100%; the failed revision never received traffic."
+      else
+        failed=1
+      fi
     fi
   done 3< "$STATE"
   return "$failed"
