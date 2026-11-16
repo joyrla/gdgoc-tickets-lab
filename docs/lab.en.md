@@ -1,17 +1,17 @@
 # Cloud Ticketing lab
 
-You put a finished event-signup service into your own Google Cloud project, then sign up and cancel on it yourself and follow where each request goes through the cloud. You write no code.
+You put a finished event-signup service into your own Google Cloud project, then sign up and cancel on it yourself and follow where each request goes through the cloud.
 
 1. **Setup**: make a project and your own GitHub repository, then build everything with one command.
 2. **Connect**: connect GitHub to Google Cloud and the email service to Google Cloud, by hand.
-3. **Walkthrough**: cause signups, cancels and a rush in the app, then follow what happens through the emails that really arrive and the Console. A few things you break on purpose and fix.
+3. **Walkthrough**: sign up, cancel and run a rush of signups in the app, then follow what happens through the emails that really arrive and the Console. A few things you break on purpose and fix.
 
 | | |
 |---|---|
 | Level | Introductory (200) |
 | Time | 70-minute session + about 4 hours over two weeks (in four sittings) |
 | Cost | Taken from the free trial credit. A 12,000 won budget alert is set. Real cost is a few thousand won |
-| Last checked | 2026-11-16 (updated after the full test run) |
+| Last checked | 2026-11-16 |
 
 **By the end you can**
 
@@ -48,7 +48,7 @@ cd ~/gdgoc-tickets
 - On every Console screen, first check that the project menu at the top shows your lab project.
 - Copy and run the commands as they are. The only value you change is `you@gmail.com` (your Gmail address).
 
-**Each mission** has **Where** (which of the site, the Console, Cloud Shell, GitHub or your inbox you use), **Do**, **Email**, **Where to look**, **Check** and **Why**.
+**Each mission** has, in order: **Where** (where you work), **Do**, **Email**, **Where to look**, **Check** and **Why**.
 
 **Submission cues:** **Submit 1** to **Submit 6** are required screenshots; **Optional** ones are up to you. They are collected in [Submission](#submission) at the end.
 
@@ -76,16 +76,16 @@ cd ~/gdgoc-tickets
 
 ![Architecture](architecture.png)
 
-| Part | What it does |
+| Component | What it does |
 |---|---|
-| `web` (Cloud Run service, public) | Event pages and API. Saves the seat in Firestore, leaves a "make a ticket" message, and answers at once |
+| `web` (Cloud Run service, public) | Event pages and API. Saves the seat in Firestore, leaves a ticket request message, and answers at once |
 | Pub/Sub topic `registrations` and subscription `ticket-worker` | Holds messages and delivers them to the worker. Retries on failure; after 5 failures, moves the message to `dead-letter` |
 | `ticket-worker` (service, internal only) | Makes the QR ticket, and sends the emails that arrive on the `emails` topic |
 | Eventarc trigger and `waitlist-promoter` (service, internal only) | When a registration changes (a cancel), gives the seat to the first person waiting |
 | Cloud Scheduler and `housekeeping` (Cloud Run job) | Every 5 minutes: deadlines, resending stuck tickets, filling free seats, pre-warming before an opening |
 | Firestore | Events, registrations, seat counters |
 | Secret Manager | The mail key (`smtp-password`) and the app's secret values |
-| 8 service accounts | One per part, with only the permissions it needs |
+| 8 service accounts | One per component, with only the permissions it needs |
 | GitHub Actions (your repository) | On every push to `main`: checks, image builds, deploy |
 | Resend (an email service outside Google Cloud) | Sends the real emails |
 
@@ -97,12 +97,12 @@ Missions 0, 1, 3 and 12 are setup and wrap-up.
 |---|---|---|---|
 | 1 | Connect GitHub without keys and watch another branch get refused | 2 | Keyless deploy, the trust condition |
 | 2 | Follow one signup through `web` → Pub/Sub → worker → Firestore | 4 | How a whole cloud system fits together, asynchronous work |
-| 3 | Connect the queue to the worker yourself and fix the 403 | 5 | The queue keeps messages safe, ingress vs IAM |
-| 4 | Break the worker and watch retries and the dead letter | 6 | Failures are kept, not lost; idempotency |
+| 3 | Connect the queue to the worker yourself and fix the 403 | 5 | Messages kept in the queue, ingress vs IAM |
+| 4 | Break the worker and watch retries and the dead letter | 6 | Failed messages kept; idempotency |
 | 5 | Cancel and watch the waiting person get the seat and the email | 7 | Event-driven design |
 | 6 | Split traffic to a new revision and roll back; watch broken code get stopped | 8, 9 | Revisions, safe deploys, rollback in seconds |
 | 7 | Measure a cold start, then watch pre-warm before an opening | 10 | Scale to zero, cold start, cost |
-| 8 | Rush 300 visitors at once and change concurrency | 11 | Autoscaling, concurrency, where the limit is |
+| 8 | 300 signups at once, then another concurrency | 11 | Autoscaling, concurrency, the throughput limit |
 
 ## Schedule
 
@@ -146,7 +146,7 @@ Missions 0, 1, 3 and 12 are setup and wrap-up.
    ```
 
    - `gh auth login`: press Enter at both questions and at `Press Enter`. Cloud Shell cannot open a browser, so the terminal just waits. In a new tab open [github.com/login/device](https://github.com/login/device), type the 8-character code on screen → **Continue** → **Authorize github**. When the terminal says `Logged in as`, the next line runs. Ignore the clipboard warning (`Failed to copy`).
-   - `gh repo clone gdgoc-tickets`: gets `gdgoc-tickets` of the account you signed in with, which is the repository you made in step 5.
+   - `gh repo clone gdgoc-tickets`: gets the signed-in account's `gdgoc-tickets` (the repository you made in step 5).
    - `./lab up`: shows the name and ID of the project Cloud Shell is using (the yellow text in the prompt) and asks. If it is the project from step 1, type `y`; if not, press Enter, pick the project at the top of the Console and reopen Cloud Shell.
 
 What `./lab up` does: installs tools, turns on APIs, builds four images with Cloud Build, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes 20 to 25 minutes. Do Mission 1 while you wait.
@@ -160,7 +160,7 @@ What `./lab up` does: installs tools, turns on APIs, builds four images with Clo
 
 **Check.** The last line shows your site's address. Opening it shows an empty event list.
 
-**Why.** A budget only sends alerts; it does not stop anything. **Do not click "Upgrade to a full account".** Building each part in the Console is mostly filling in forms, so a command does it. This lab spends its time connecting, using, breaking and measuring the parts. Building them is the topic of the next session (Terraform).
+**Why.** A budget only sends alerts; it does not stop anything. **Do not click "Upgrade to a full account".** Building each component in the Console is mostly filling in forms, so a command does it, and the lab's time goes to connecting, using, breaking and measuring. Building them is the topic of the next session (Terraform).
 
 **Stuck?**
 
@@ -199,7 +199,7 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
 
 (Optional) `./lab iam` shows every account's permissions and the reason for each in one table.
 
-**Why.** The Console shows what exists now, one part at a time. How the parts connect only shows when you follow it, as in these five questions. The code (`infra/*.tf`) holds what should exist and why.
+**Why.** The Console shows what exists now, one component at a time. How the components connect only shows when you follow it, as in these five questions. The code (`infra/*.tf`) records each setting and why it is there.
 
 ---
 
@@ -317,7 +317,7 @@ Email is off for now: every email the app would send only shows as `not sent` in
 
 **Check.** The ticket stays at **티켓 발급 중** (Issuing your ticket), and no email arrives. One `{"registration_id": ...}` message is waiting in the subscription.
 
-**Why.** `web` saved the seat in Firestore, left a message and answered right away. The subscription is **Pull** for now, so it just keeps the message until someone takes it. Nothing is lost. The confirmation email is sent by the worker that issues the ticket, so while the message has not reached the worker there is no email either. Because signup and ticketing are split, signups keep working even when ticketing is slow or stopped.
+**Why.** `web` saved the seat in Firestore, left a message and answered right away. The subscription is **Pull** for now, so it keeps the message until someone takes it. The confirmation email is sent by the worker that issues the ticket, so while the message has not reached the worker there is no email either. Because signup and ticketing are split, signups keep working even when ticketing is slow or stopped.
 
 > **Optional:** the waiting message and the "issuing" ticket page
 
@@ -340,7 +340,7 @@ Email is off for now: every email the app would send only shows as `not sent` in
 
 (Optional) Check the setting: `./lab check push`
 
-**Why.** `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub may come in (from the internet they get 404). But it requires authentication, so an unsigned request gets 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, which holds **Cloud Run Invoker** on `ticket-worker`. Getting through the door (ingress) and being allowed in (IAM) are separate.
+**Why.** `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub may come in (from the internet they get 404). But it requires authentication, so an unsigned request gets 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, which holds **Cloud Run Invoker** on `ticket-worker`. Network entry (ingress) and permission to call (IAM) are separate settings.
 
 > **Submit 2 screenshot:** the `403` log (before the fix), the ticket with its QR code (after)
 
@@ -374,7 +374,7 @@ Now fix it.
 
 **Email.** Seconds after the replay, `신청 완료: 연결 확인` for `you+b@gmail.com`. A few minutes later, look for `skip ... (status issued)` in the logs.
 
-**Why.** Because signup and ticketing are split by a message, signups keep working while the worker is broken. Retries fix short failures; a failure that retries cannot fix stays in `dead-letter` after 5 tries for a person to look at. The `skip` line is the job, which runs every 5 minutes, sending the stuck ticket once more. Even when the same message arrives twice, the worker first checks "did I already issue this?", so there is still one ticket and one email (idempotency).
+**Why.** Because signup and ticketing are split by a message, signups keep working while the worker is broken. Retries fix short failures; a failure that retries cannot fix stays in `dead-letter` after 5 tries for a person to look at. The `skip` line is the job, which runs every 5 minutes, sending the stuck ticket once more. Even when the same message arrives twice, the worker first checks whether the ticket was already issued, so there is still one ticket and one email (idempotency).
 
 > **Submit 3 screenshot:** the repeated `500` logs and the message waiting in `dead-letter` (both before the fix)
 
@@ -403,7 +403,7 @@ Now fix it.
 
 **Check.** Within seconds the private window's ticket shows a QR code and the `자리 배정` email arrives.
 
-**Why.** The cancel changes a Firestore document; Eventarc delivers that change to `waitlist-promoter`. The promoter gives the seat to the first person waiting and leaves a message on the `registrations` topic, so the ticket and the `자리 배정` email go out the same way as in Missions 4 to 6. `web` knows nothing about the waitlist. Because the system reacts to the data change itself, a cancel from anywhere is handled in one place. If delivery fails, the job that runs every 5 minutes fills free seats anyway: events for speed, a periodic sweep for correctness.
+**Why.** The cancel changes a Firestore document; Eventarc delivers that change to `waitlist-promoter`, which gives the seat to the first person waiting and leaves a message on the `registrations` topic, so the ticket and the `자리 배정` email go out the same way as in Missions 4 to 6. `web` knows nothing about the waitlist. Because the system reacts to the data change itself, a cancel from anywhere is handled in one place. If delivery fails, the job that runs every 5 minutes fills free seats anyway.
 
 > **Optional:** the `자리 배정` email and the `waitlist-promoter` log
 
@@ -462,7 +462,7 @@ Now fix it.
 
    The new revision passes its check at 0%, then gets 100%. The image tag is the commit SHA.
 
-**Why.** A deploy sends traffic to a new revision only after it passes a check at 0%; if it fails, traffic stays on the previous revision. GitHub Actions does in order what you did by hand in Mission 8, so broken code is stopped before it reaches users.
+**Why.** A deploy sends traffic to a new revision only after it passes a check at 0%; if it fails, traffic stays on the previous revision. GitHub Actions does in order what you did by hand in Mission 8.
 
 > **Optional:** the failed **Smoke test web's new revision** step and the **Revisions** tab at that moment
 
