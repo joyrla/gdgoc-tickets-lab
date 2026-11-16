@@ -15,33 +15,6 @@ You put a finished event-signup service into your own Google Cloud project, then
 - Read a 403, a retry and a dead letter, and find the one setting behind each
 - Explain autoscaling, cold start and pre-warm with your own measurements
 
-## Before you start
-
-| You need | |
-|---|---|
-| A Google account | A personal Gmail account that can use the free trial. School accounts may block projects or billing |
-| A GitHub account | Accept the instructor's invitation to the lab repository first ([github.com/notifications](https://github.com/notifications)) |
-| VS Code and git | For changing code, from Mission 2. Without them, use GitHub's web editor (press `.` on your repository's page) |
-| A mail key and a sender address | Your instructor sends them in a private message. You use them in Mission 3 |
-
-**Every time you open Cloud Shell,** first go to your repository's folder. Every `./lab` command runs from there.
-
-```bash
-cd ~/gdgoc-tickets
-```
-
-**More addresses from one inbox.** Gmail delivers mail for `you+anything@gmail.com` to `you@gmail.com`. With `you+b@gmail.com` and `you+c@gmail.com` one inbox can play several attendees; the app treats each as a different person.
-
-**Email limit.** Everyone shares one mail key's limit (100 emails a day). Following this sheet sends about 15 emails per person over two weeks. Don't send more than 10 in one day.
-
-**In the Console**
-
-- On every screen, first check that the project menu at the top shows your lab project.
-- Pub/Sub, Eventarc, Cloud Scheduler and Logging are not in the default ☰ list. Once, open ☰ → **View all products** and click the ☆ on those four rows; they then appear at the top of ☰.
-- The Console's **Jobs** are this sheet's jobs.
-
-**When stuck:** after 20 minutes, post the mission number, the `./lab check` output and the error screen in the help thread. If something is broken, run `./lab up` again: every setting goes back to the code's version.
-
 ## If you know AWS
 
 | AWS | This lab (Google Cloud) |
@@ -146,6 +119,8 @@ What `./lab up` does: installs tools, turns on APIs, then uses Terraform to crea
 2. You: pick your neighbor's project in the project menu at the top of the Console. Run the `./lab` commands together in your neighbor's Cloud Shell.
 3. After the session, finish your own project with `cd ~/gdgoc-tickets && ./lab up`. When the lab ends, your neighbor removes your access.
 
+**Console setup.** Pub/Sub, Eventarc, Cloud Scheduler and Logging are not in the default ☰ list. Click the ☆ on those four rows in ☰ → **View all products**, and they appear at the top of ☰.
+
 **Check.** The last line shows your site's address. Opening it shows Google's sample page; it becomes the real site after your first deploy in Mission 2.
 
 **Why.** A budget only sends alerts; it does not stop anything. **Do not click "Upgrade to a full account".** Building each component in the Console is mostly filling in forms, so a command does it, and the lab's time goes to connecting, using, breaking and measuring. Building them is the topic of the next session (Terraform).
@@ -245,7 +220,7 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
 
 **Do. First deploy (pull request)**
 
-9. Get it on your computer. VS Code → left **Source Control** → **Clone Repository** → **Clone from GitHub** → sign in to GitHub → `gdgoc-tickets` → pick a folder → **Open**.
+9. Get it on your computer. VS Code → left **Source Control** → **Clone Repository** → **Clone from GitHub** → sign in to GitHub → `gdgoc-tickets` → pick a folder → **Open**. Without VS Code, press `.` on your repository's GitHub page for the web editor (github.dev) and do steps 10–14 the same way.
 10. Bottom left of VS Code, the branch name (**main**) → **Create new branch...** → `first-deploy`.
 11. In `web/templates/home.html`, replace line 7, `행사를 찾아 신청하고 QR 티켓으로 입장하세요.`, with any sentence, and save.
 12. **Source Control** → message `First deploy` → **Commit** → **Publish Branch**.
@@ -354,7 +329,7 @@ Email is off for now: every email the app would send only shows as `not sent` in
 1. ☰ → **Cloud Run** → `ticket-worker` → **Containers** tab → **Variables & Secrets** → **Add variable**: `WORKER_FAIL_RATE` = `1`.
 2. Top right **Review changes and redeploy** → check the changed line → **Deploy changes**.
 
-**In the app.** In a browser **private window**, open the site → **연결 확인** → **신청하기** → any **이름**, **이메일** `you+b@gmail.com` → tick the agreement → **신청하기** → **티켓 보기**.
+**In the app.** In a browser **private window**, open the site → **연결 확인** → **신청하기** → any **이름**, **이메일** `you+b@gmail.com` (Gmail delivers it to your own inbox whatever follows the `+`) → tick the agreement → **신청하기** → **티켓 보기**.
 
 **Email.** None before the fix.
 
