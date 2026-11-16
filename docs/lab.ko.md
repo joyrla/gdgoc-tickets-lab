@@ -165,12 +165,12 @@
 
 내 컴퓨터에 Git과 VS Code가 필요합니다. Mac은 터미널에서 `git --version`을 실행하면 설치 창이 뜹니다. Windows는 [git-scm.com](https://git-scm.com/downloads)에서 기본 설정으로 설치합니다.
 
-9. VS Code → 위쪽 메뉴 **Terminal → New Terminal**. 이름과 이메일을 설정하고(처음 한 번), 내 저장소를 받습니다. `내_ID`는 GitHub 아이디입니다.
+9. VS Code → 위쪽 메뉴 **Terminal → New Terminal**. 이름과 이메일을 설정하고(처음 한 번), 내 저장소를 받습니다. `GitHub_사용자명`은 GitHub 로그인 이름입니다(2번의 숫자 `저장소_ID`가 아님).
 
    ```bash
    git config --global user.name "내 이름"
    git config --global user.email "GitHub에 등록한 이메일"
-   git clone https://github.com/내_ID/gdgoc-tickets.git
+   git clone https://github.com/GitHub_사용자명/gdgoc-tickets.git
    ```
 
 10. **File → Open Folder** → 홈 폴더의 `gdgoc-tickets`. **Terminal → New Terminal**을 다시 열고 새 브랜치를 만듭니다.
@@ -187,7 +187,7 @@
     git push -u origin first-deploy
     ```
 
-13. 출력에 나온 `https://github.com/내_ID/gdgoc-tickets/pull/new/first-deploy`를 엽니다 → **Create pull request**. 아래에 검사(**Checks**)가 돕니다. 이 단계에서는 배포하지 않습니다.
+13. 출력에 나온 `https://github.com/GitHub_사용자명/gdgoc-tickets/pull/new/first-deploy`를 엽니다 → **Create pull request**. 아래에 검사(**Checks**)가 돕니다. 이 단계에서는 배포하지 않습니다.
 14. 검사가 모두 초록색이면 **Merge pull request** → **Confirm merge**.
 
 **볼 곳.** **Actions** → `main`에서 시작된 **CI/CD** 실행 → `deploy` 작업의 단계. ☰ → **Cloud Run** → `web` → **업데이트 기록** 탭.

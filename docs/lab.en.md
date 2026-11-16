@@ -165,12 +165,12 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
 
 You need Git and VS Code on your computer. On a Mac, run `git --version` in Terminal and an install window appears. On Windows, install Git from [git-scm.com](https://git-scm.com/downloads) with the default options.
 
-9. VS Code → top menu **Terminal → New Terminal**. Set your name and email (once), then get your repository. `YOUR_ID` is your GitHub username.
+9. VS Code → top menu **Terminal → New Terminal**. Set your name and email (once), then get your repository. `YOUR_USERNAME` is your GitHub username (not the numeric `REPOSITORY_ID` from step 2).
 
    ```bash
    git config --global user.name "Your Name"
    git config --global user.email "the email on your GitHub account"
-   git clone https://github.com/YOUR_ID/gdgoc-tickets.git
+   git clone https://github.com/YOUR_USERNAME/gdgoc-tickets.git
    ```
 
 10. **File → Open Folder** → `gdgoc-tickets` in your home folder. Open **Terminal → New Terminal** again and make a new branch.
@@ -187,7 +187,7 @@ You need Git and VS Code on your computer. On a Mac, run `git --version` in Term
     git push -u origin first-deploy
     ```
 
-13. Open the `https://github.com/YOUR_ID/gdgoc-tickets/pull/new/first-deploy` link in the output → **Create pull request**. The checks (**Checks**) run below it. Nothing is deployed at this stage.
+13. Open the `https://github.com/YOUR_USERNAME/gdgoc-tickets/pull/new/first-deploy` link in the output → **Create pull request**. The checks (**Checks**) run below it. Nothing is deployed at this stage.
 14. When all checks are green, **Merge pull request** → **Confirm merge**.
 
 **Where to look.** **Actions** → the **CI/CD** run started on `main` → the steps of the `deploy` job. ☰ → **Cloud Run** → `web` → **Revisions** tab.
