@@ -66,15 +66,6 @@ Missions 0, 1, 3 and 10 are setup and wrap-up.
 | 6 | Measure a cold start, then watch pre-warm before an opening | 8 | Scale to zero, cold start, cost |
 | 7 | 300 visitors at once | 9 | Autoscaling, where throughput stops |
 
-## Schedule
-
-| Sitting | Missions |
-|---|---|
-| 1 (session) | 0 Setup, (1 Look around) |
-| 2 | 2 Connect GitHub and first deploy, 3 Connect email |
-| 3 | 4 Signup and queue, 5 Worker failure and dead letter, 6 Cancel and events |
-| 4 | 7 Pull requests and safe deploys, 8 Cold start, 9 The rush, 10 Pause and submit |
-
 ---
 
 # Part 1. Setup
@@ -419,7 +410,7 @@ Now fix it.
 
 **Where:** Cloud Shell, Console
 
-**Cold start.** Do this first in the sitting, when the site has not been opened for more than 15 minutes.
+**Cold start.** Do this first, when the site has not been opened for more than 15 minutes.
 
 ```bash
 ./lab coldstart
