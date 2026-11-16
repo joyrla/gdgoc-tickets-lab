@@ -165,7 +165,7 @@ cd ~/gdgoc-tickets
 | **Use this template**가 없음 | 실습 저장소 초대를 수락했는지 확인 |
 | `Could not resolve to a Repository` | 할 일 5번을 아직 안 함, 또는 이름이 `gdgoc-tickets`가 아니거나 Owner가 다른 계정 |
 | `Google Cloud is not ready yet` | 새 프로젝트에서 흔함. 명령이 1분 뒤 스스로 다시 시도 |
-| Cloud Shell이 끊김 | 다시 열고 `cd ~/gdgoc-tickets && ./lab up` |
+| Cloud Shell이 끊김 (입력 없이 40분이 지나면 종료) | 다시 열고 `cd ~/gdgoc-tickets && ./lab up`. 만든 것은 그대로 두고 이어서 진행. 잠금 해제를 물으면 `y` |
 
 ## 미션 1. 둘러보기 (15분, `./lab up`이 도는 동안)
 

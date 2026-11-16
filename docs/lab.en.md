@@ -164,7 +164,7 @@ What `./lab up` does: installs tools, turns on APIs, builds four images with Clo
 | No **Use this template** button | Check that you accepted the invitation to the lab repository |
 | `Could not resolve to a Repository` | Step 5 not done yet, or the name is not `gdgoc-tickets`, or the owner is another account |
 | `Google Cloud is not ready yet` | Common in a new project. The command retries by itself a minute later |
-| Cloud Shell disconnected | Reopen it and run `cd ~/gdgoc-tickets && ./lab up` |
+| Cloud Shell disconnected (it shuts down after 40 minutes without input) | Reopen it and run `cd ~/gdgoc-tickets && ./lab up`; it keeps what was built and continues. If it asks to unlock, type `y` |
 
 ## Mission 1. Look around (15 min, while `./lab up` runs)
 

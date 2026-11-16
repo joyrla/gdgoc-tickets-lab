@@ -477,6 +477,40 @@ def test_a_failing_image_build_is_not_retried(lab, monkeypatch):
     assert len(calls) == 1
 
 
+def stale_lock(lab, monkeypatch, answer):
+    (lab.HOME / "backend.hcl").parent.mkdir(parents=True, exist_ok=True)
+    (lab.HOME / "backend.hcl").write_text('bucket = "p-tfstate"\nprefix = "gdgoc-tickets"\n')
+    lock = {"ID": "1763270000000000", "Who": "student@cs-123-default", "Created": "2026-11-16T05:40:00.0Z"}
+    reads, unlocked = [], []
+
+    def fake_run(cmd, **kw):
+        reads.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(lock), stderr="")
+
+    def fake_terraform(*args, **kw):
+        unlocked.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(lab.subprocess, "run", fake_run)
+    monkeypatch.setattr(lab, "terraform", fake_terraform)
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    return reads, unlocked
+
+
+def test_a_lock_left_by_a_stopped_run_is_removed_once_the_student_agrees(lab, monkeypatch):
+    reads, unlocked = stale_lock(lab, monkeypatch, "y")
+    lab.clear_stale_lock({})
+    assert reads[0][-1] == "gs://p-tfstate/gdgoc-tickets/default.tflock"
+    assert unlocked == [("force-unlock", "-force", "1763270000000000")]
+
+
+def test_a_lock_is_kept_when_the_student_does_not_agree(lab, monkeypatch):
+    _, unlocked = stale_lock(lab, monkeypatch, "")
+    with pytest.raises(SystemExit):
+        lab.clear_stale_lock({})
+    assert unlocked == []
+
+
 def test_the_billing_message_shows_what_gcloud_said_when_it_fails(lab):
     class Failing(lab.Cloud):
         def gcloud(self, *args, project=True):

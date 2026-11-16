@@ -423,6 +423,37 @@ def link_settings() -> None:
             link.symlink_to(target)
 
 
+def clear_stale_lock(env: dict) -> None:
+    """A run stopped in the middle (Cloud Shell shuts down after 40 minutes without input, or Ctrl+C)
+    leaves Terraform's lock in the state bucket, and every later run would stop on it. Only the
+    student knows whether another ./lab is still running, so ask before removing it."""
+    backend = (HOME / "backend.hcl").read_text() if (HOME / "backend.hcl").exists() else ""
+    bucket, prefix = re.search(r'bucket\s*=\s*"([^"]+)"', backend), re.search(r'prefix\s*=\s*"([^"]+)"', backend)
+    if not bucket:
+        return
+    where = f"gs://{bucket.group(1)}/{prefix.group(1) if prefix else ''}/default.tflock".replace(
+        "//default", "/default"
+    )
+    found = subprocess.run(["gcloud", "storage", "cat", where], capture_output=True, text=True)
+    if found.returncode:
+        return  # no lock
+    lock = json.loads(found.stdout or "{}")
+    print(
+        f"Terraform's state is locked by a run that did not finish: {lock.get('Who', '?')}, {lock.get('Created', '?')[:19]}."
+    )
+    print("That happens when Cloud Shell shut down, or the command was stopped, in the middle of a run.")
+    try:
+        answer = input("If no other ./lab is running now, type y and press Enter to unlock and continue: ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() not in ("y", "yes"):
+        die(f"Still locked. To unlock later: terraform -chdir=infra force-unlock {lock.get('ID', 'LOCK_ID')}")
+    done = terraform("force-unlock", "-force", lock.get("ID", ""), env=env)
+    if done.returncode:
+        die(f"Could not unlock:\n{(done.stderr or done.stdout).strip()}")
+    print("Unlocked.")
+
+
 def ensure_terraform(env: dict) -> None:
     link_settings()
     if not (INFRA / ".terraform" / "terraform.tfstate").exists():
@@ -582,6 +613,7 @@ def apply(cloud: Cloud, parts: list) -> None:
     write_tfvars(values)
     env = terraform_env()
     ensure_terraform(env)
+    clear_stale_lock(env)
     adopt(cloud, parts, env)
     log = HOME / "apply.log"
     for attempt in range(1, 5):
