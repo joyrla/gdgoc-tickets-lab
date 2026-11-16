@@ -48,7 +48,7 @@ cd ~/gdgoc-tickets
 - On every Console screen, first check that the project menu at the top shows your lab project.
 - Copy and run the commands as they are. The only value you change is `you@gmail.com` (your Gmail address).
 
-**Each mission** has **Where** (which of the site, the Console, Cloud Shell, GitHub or your inbox you use), **Do**, **Predict**, **Email**, **Where to look**, **Check** and **Why**. Write the prediction in one line before you start. Wrong predictions are fine.
+**Each mission** has **Where** (which of the site, the Console, Cloud Shell, GitHub or your inbox you use), **Do**, **Email**, **Where to look**, **Check** and **Why**.
 
 **Submission cues:** **Submit 1** to **Submit 6** are required screenshots; **Optional** ones are up to you. They are collected in [Submission](#submission) at the end.
 
@@ -91,7 +91,7 @@ cd ~/gdgoc-tickets
 
 ## The eight key moments
 
-These are the eight moments you learn the most from. The other missions (0 setup, 1 look around, 3 connect email, 12 wrap-up) support them.
+Missions 0, 1, 3 and 12 are setup and wrap-up.
 
 | | Moment | Mission | What you learn |
 |---|---|---|---|
@@ -223,8 +223,6 @@ You connect two outside services to what was built: GitHub (push code, get a dep
 2. Your repository (the address in the `./lab github` output) → **Settings** → left **Secrets and variables → Actions** → **Variables** tab → **New repository variable**. Add `GCP_PROJECT_ID`, `WIF_PROVIDER` and `DEPLOYER_SA` one at a time, copying the values from the `./lab github` output. They are not secret, so they go in the **Variables** tab, not **Secrets**.
 3. Wait two minutes, then **Actions** → left **Sign-in test** → **Run workflow** → **Run workflow**.
 
-**Predict.** You stored no key at all. Will it sign in?
-
 **Where to look.**
 - The run → the **Signed in as the deployer** step
 - ☰ → **IAM & Admin → Workload Identity Federation** → `github` → provider `gdgoc-tickets` → **Attribute condition**
@@ -232,8 +230,6 @@ You connect two outside services to what was built: GitHub (push code, get a dep
 **Check.** A green tick. It signed in as `tickets-deployer`. The attribute condition holds your repository's ID and `refs/heads/main`. `./lab check github`.
 
 4. Try another branch. Your repository's main page → the branch menu at the top left (**main**) → type `try-branch` → **Create branch try-branch from main**. Then **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**.
-
-**Predict.** Same repository, same code. Will it sign in?
 
 **Check.** It fails. Take a screenshot of the failed step's error (**Submit 1**). Then delete the branch: the branch menu → **View all branches** → the trash icon on the `try-branch` row.
 
@@ -285,8 +281,6 @@ Email is off for now: every email the app would send only shows as `not sent` in
 
 **Email.** `[Cloud Ticketing] 인증 코드 123456` (sign-in code). Type the code into **인증 코드** (Code) and click **확인** (Confirm). **관리** (Admin) appears in the top menu: the account that ran `./lab up` is an organizer.
 
-**Predict.** Can `web` read the mail key?
-
 **Where to look.** `smtp-password` → **Permissions** tab. ☰ → **Cloud Run** → `ticket-worker` and `web` → **Containers** tab → **Variables & Secrets**.
 
 **Check.** Only `tickets-ticket-worker` can read the key, and `web` has no mail key attached. `./lab check mail`.
@@ -299,7 +293,7 @@ Email is off for now: every email the app would send only shows as `not sent` in
 
 # Part 3. Walkthrough
 
-Now you use the app. **In the app** lists the buttons to press on the site; **Email** is what should then arrive in your inbox. An email that does not arrive is a result too: find out why in the Console and the logs. Every subject starts with `[Cloud Ticketing]`.
+**In the app** lists the buttons to press on the site; **Email** is what should then arrive in your inbox. Every subject starts with `[Cloud Ticketing]`.
 
 ## Mission 4. Follow one signup (20 min)
 
@@ -314,8 +308,6 @@ Now you use the app. **In the app** lists the buttons to press on the site; **Em
    - Tick **공개** (Published) at the bottom → **행사 만들기** (Create event)
 2. **행사 페이지** (Event page) → **신청하기** (Sign up). Fill in **이름** (Name) if it is empty, tick **개인정보 수집 및 이용에 동의합니다** (I agree to the privacy terms) → **신청하기**. The email is your signed-in Gmail.
 3. **티켓 보기** (View ticket).
-
-**Predict.** Will a confirmation email arrive? Will the ticket page show a QR code?
 
 **Email.** None.
 
@@ -333,14 +325,10 @@ Now you use the app. **In the app** lists the buttons to press on the site; **Em
 
 **Where:** Console, your inbox
 
-This is the connection you make in the Console yourself.
-
 **Do.**
 1. ☰ → **Cloud Run → Services** → copy the **URL** of `ticket-worker`.
 2. ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Edit**.
 3. **Delivery type**: **Push**. **Endpoint URL**: the URL you copied. Leave **Enable authentication** **unticked** → **Update**.
-
-**Predict.** Will the ticket and the email come now?
 
 **Where to look.** ☰ → **Cloud Run** → `ticket-worker` → **Observability** tab, logs.
 
@@ -362,15 +350,11 @@ This is the connection you make in the Console yourself.
 
 **Where:** Console, the site (private window), your inbox, Cloud Shell
 
-**Problem.** If the worker breaks, what happens to the people signing up?
-
 **Do.**
 1. ☰ → **Cloud Run** → `ticket-worker` → **Containers** tab → **Variables & Secrets** → **Add variable**: `WORKER_FAIL_RATE` = `1`.
 2. Top right **Review changes and redeploy** → check the changed line → **Deploy changes**.
 
 **In the app.** In a browser **private window**, open the site → **연결 확인** → **신청하기** → any **이름**, **이메일** `you+b@gmail.com` → tick the agreement → **신청하기** → **티켓 보기**.
-
-**Predict.** Will the signup succeed? What happens to the ticket and the email?
 
 **Email.** None before the fix.
 
@@ -406,8 +390,6 @@ Now fix it.
 3. Private window: the site → **대기 배정 확인** → **대기 신청하기** (Join the waitlist) → **이메일** `you+c@gmail.com` → tick the agreement → **대기 신청하기** → **티켓 보기**. It shows **대기 1번** (waitlist #1).
 4. On the normal window's ticket page, at the bottom: **신청 취소** (Cancel registration) → "신청을 취소할까요?" (Cancel?) → **OK**.
 
-**Predict.** Who gives the seat to the waiting person, and what triggers it?
-
 **Email.**
 
 | When | To | Subject | Sent by |
@@ -433,8 +415,6 @@ Now fix it.
 1. ☰ → **Cloud Run** → `web` → **Containers** tab → **Add variable**: `LAB_NOTE` = `v2`.
 2. **Review changes and redeploy** → **untick** **Serve this revision immediately** at the bottom → **Deploy changes**.
 3. `web` → **Revisions** tab.
-
-**Predict.** How many users see the new revision?
 
 **Check.** There is a new revision with 0% of traffic. The revision GitHub deployed in Mission 2 is in the list too.
 
@@ -470,8 +450,6 @@ Now fix it.
    git commit -am "Break on Cloud Run" && git push
    ```
 
-**Predict.** Will the site go down?
-
 **Where to look.** Your repository's **Actions** → the new run → the steps of the `deploy` job, and `web`'s **Revisions** tab.
 
 **Check.** The new revision starts at 0%, fails at **Smoke test web's new revision**, and **Put everything back** runs. The site's home page keeps working.
@@ -498,8 +476,6 @@ Now fix it.
 ./lab coldstart
 ```
 
-**Predict.** How different are the first request and the ones after it?
-
 **Check.** The first request takes seconds; the next ones under 0.1 s. Write both in the measurement table.
 
 **Pre-warm.**
@@ -507,8 +483,6 @@ Now fix it.
 
 2. ☰ → **Cloud Scheduler** → tick the `housekeeping` row → **Force run**, so the job runs now instead of in up to 5 minutes.
 3. ☰ → **Cloud Run → Jobs** → `housekeeping` → **History** tab → the run you just started → logs.
-
-**Predict.** What will the job do to `web`?
 
 **Check.** The log says `pre-warm: web minimum instances 0 → 3`. In `web` → **Observability**, the instance count graph shows 3 instances. An hour after the opening, the job sets it back to 0.
 
@@ -528,8 +502,6 @@ Now fix it.
    ./lab load rush-a
    ```
 
-**Predict.** How many instances will there be at most? Will more than 100 tickets be issued?
-
 **Email.** None. The visitors' addresses are `@example.com`, a domain reserved for testing, so nothing is sent even with email on; the logs say `test address, not sent`.
 
 **Where to look.** (graphs appear 3 to 5 minutes late)
@@ -547,8 +519,6 @@ Now fix it.
    ```
 
 5. When it ends, set concurrency back to `40`.
-
-**Predict.** With half the visitors, will there be more instances than the first time, or fewer?
 
 **Why.** Cloud Run adds instances by looking at concurrent requests per instance. With lower concurrency, the same load needs more instances. Every signup changes the event's single seat-counter document in a transaction, so seats are exact but signups per second have a ceiling. More instances do not raise it.
 
