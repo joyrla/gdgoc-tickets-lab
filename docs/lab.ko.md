@@ -146,7 +146,7 @@ cd ~/gdgoc-tickets
    ./lab up
    ```
 
-   - `gh auth login`: 물음 두 개와 `Press Enter`에서 Enter만 누릅니다. 화면의 8자리 코드를 [github.com/login/device](https://github.com/login/device)에 넣습니다. 클립보드 경고(`Failed to copy`)는 무시합니다.
+   - `gh auth login`: 물음 두 개와 `Press Enter`에서 Enter만 누릅니다. Cloud Shell은 브라우저를 열지 못하므로 터미널이 멈춘 듯 기다립니다. 새 탭에서 [github.com/login/device](https://github.com/login/device)를 열고, 화면의 8자리 코드 → **Continue** → **Authorize github**. 터미널에 `Logged in as`가 나오면 다음 줄로 넘어갑니다. 클립보드 경고(`Failed to copy`)는 무시합니다.
    - `gh repo clone gdgoc-tickets`: 로그인한 계정의 `gdgoc-tickets`, 곧 5번에서 만든 내 저장소를 받습니다.
    - `./lab up`: Cloud Shell이 쓰는 프로젝트(프롬프트의 노란 글씨)의 이름과 ID를 보여 주고 묻습니다. 1번에서 만든 프로젝트가 맞으면 `y`, 아니면 Enter를 누르고 콘솔 위쪽에서 프로젝트를 고른 뒤 Cloud Shell을 다시 엽니다.
 

@@ -145,7 +145,7 @@ These are the eight moments you learn the most from. The other missions (0 setup
    ./lab up
    ```
 
-   - `gh auth login`: press Enter at both questions and at `Press Enter`. Type the 8-character code on screen at [github.com/login/device](https://github.com/login/device). Ignore the clipboard warning (`Failed to copy`).
+   - `gh auth login`: press Enter at both questions and at `Press Enter`. Cloud Shell cannot open a browser, so the terminal just waits. In a new tab open [github.com/login/device](https://github.com/login/device), type the 8-character code on screen → **Continue** → **Authorize github**. When the terminal says `Logged in as`, the next line runs. Ignore the clipboard warning (`Failed to copy`).
    - `gh repo clone gdgoc-tickets`: gets `gdgoc-tickets` of the account you signed in with, which is the repository you made in step 5.
    - `./lab up`: shows the name and ID of the project Cloud Shell is using (the yellow text in the prompt) and asks. If it is the project from step 1, type `y`; if not, press Enter, pick the project at the top of the Console and reopen Cloud Shell.
 
