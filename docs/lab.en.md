@@ -149,7 +149,7 @@ These are the eight moments you learn the most from. The other missions (0 setup
    - `gh repo clone gdgoc-tickets`: gets `gdgoc-tickets` of the account you signed in with, which is the repository you made in step 5.
    - `./lab up`: shows the name and ID of the project Cloud Shell is using (the yellow text in the prompt) and asks. If it is the project from step 1, type `y`; if not, press Enter, pick the project at the top of the Console and reopen Cloud Shell.
 
-What `./lab up` does: installs tools, turns on APIs, builds four images, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes 20 to 25 minutes. Do Mission 1 while you wait.
+What `./lab up` does: installs tools, turns on APIs, builds four images with Cloud Build, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes 20 to 25 minutes. Do Mission 1 while you wait.
 
 **Check.** The last line shows your site's address. Opening it shows an empty event list.
 

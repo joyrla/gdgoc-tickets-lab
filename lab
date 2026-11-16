@@ -18,7 +18,7 @@ docs/lab.ko.md says when to use each.
   ./lab down                   delete everything the lab made in Google Cloud
   one part at a time, as in the hand-built lab:
   ./lab start PROJECT_ID       tools, GitHub sign-in, APIs, image registry, the first images
-  ./lab images                 build and push the four images (start and up run it)
+  ./lab images                 build the four images with Cloud Build (start and up run it)
   ./lab base|workers|warmup|deployer   build that part
   ./lab env [web|job|github]   values to paste into the Console and GitHub
   ./lab skip STEP              build a hand step for you; the report shows it as skipped
@@ -169,6 +169,8 @@ ROLE_TITLES = {
     "roles/artifactregistry.writer": "Artifact Registry Writer",
     "roles/run.developer": "Cloud Run Developer",
 }
+
+CLOUD_BUILD_NOT_READY = re.compile(r"PERMISSION_DENIED|has not been used|SERVICE_DISABLED|not ready")
 
 # A connection that failed for a moment: worth trying again, not a mistake to fix
 NETWORK_ERROR = re.compile(
@@ -721,7 +723,7 @@ def build_images(cloud: Cloud) -> subprocess.Popen | None:
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    print(f"Building the four images in the background (about 5 minutes; progress: tail -f {log}).")
+    print(f"Cloud Build is building the four images (about 5 minutes; progress: tail -f {log}).")
     return builder
 
 
@@ -781,32 +783,32 @@ def images_ready(cloud: Cloud) -> bool:
 
 
 def images() -> None:
-    """Build the four images in Cloud Shell and push them, before GitHub Actions is connected."""
+    """Build the four images with Cloud Build (scripts/lab-images.yaml) and push them, before
+    GitHub Actions is connected. Cloud Build runs inside the project, so no Docker is needed here."""
     cloud = cloud_from_settings()
-    if not has("docker"):
-        die("docker is missing. Cloud Shell has it; run ./lab images there.")
-    sh(["gcloud", "auth", "configure-docker", f"{cloud.region}-docker.pkg.dev", "--quiet"], capture=True)
-    for name in IMAGES:
-        tag = f"{cloud.registry}/{name}:lab"
-        print(f"building {tag}", flush=True)
-        sh(["docker", "build", "--quiet", "--target", name, "-t", tag, "."], cwd=REPO)
-        push(tag)
-    print("images ready", flush=True)
-
-
-def push(tag: str) -> None:
-    """docker push, tried again after a network error (a new registry, or Cloud Shell's network
-    for a moment, can refuse the connection or time out)."""
-    for attempt in range(1, 5):
-        done = subprocess.run(["docker", "push", "--quiet", tag], capture_output=True, text=True)
-        if done.returncode == 0:
-            print(done.stdout.strip(), flush=True)
+    command = ["gcloud", "builds", "submit", str(REPO), "--config", str(REPO / "scripts/lab-images.yaml"),
+               "--substitutions", f"_REGISTRY={cloud.registry}", "--project", cloud.project, "--quiet"]  # fmt: skip
+    for attempt in range(1, 6):
+        print(f"building the four images with Cloud Build into {cloud.registry}", flush=True)
+        code, output = streamed(command)
+        if code == 0:
+            print("images ready", flush=True)
             return
-        error = (done.stderr or done.stdout or "").strip()
-        if attempt == 4 or not NETWORK_ERROR.search(error):
-            die(f"Stopped: docker push {tag} failed.\n{error}")
-        print(f"  the push hit a network error; trying again in 20 seconds ({attempt} of 3)", flush=True)
-        time.sleep(20)
+        # Right after ./lab up turns Cloud Build on, it refuses builds for a minute or two
+        if attempt == 5 or not CLOUD_BUILD_NOT_READY.search(output):
+            die("Stopped: the image build failed (the lines above say why).")
+        print(f"Cloud Build is not ready yet. Trying again in a minute ({attempt} of 4).", flush=True)
+        time.sleep(60)
+
+
+def streamed(command: list) -> tuple[int, str]:
+    """Run a command, printing its output as it comes, and return (exit code, output)."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=REPO)
+    lines = []
+    for line in process.stdout:
+        print(line, end="", flush=True)
+        lines.append(line)
+    return process.wait(), "".join(lines)
 
 
 def need(ready: bool, message: str) -> None:

@@ -1,0 +1,20 @@
+# The four images the lab starts with (tag lab), built by Cloud Build inside the project, so
+# neither Cloud Shell nor a laptop needs Docker. ./lab up runs it as:
+#   gcloud builds submit --config scripts/lab-images.yaml \
+#     --substitutions _REGISTRY=asia-northeast3-docker.pkg.dev/PROJECT_ID/gdgoc-tickets
+# Later images come from GitHub Actions (.github/workflows/ci.yml), tagged with the commit SHA.
+# One after another: the three later builds reuse the base stage the first one built.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: [build, --target, web, --tag, "${_REGISTRY}/web:lab", .]
+  - name: gcr.io/cloud-builders/docker
+    args: [build, --target, ticket-worker, --tag, "${_REGISTRY}/ticket-worker:lab", .]
+  - name: gcr.io/cloud-builders/docker
+    args: [build, --target, waitlist-promoter, --tag, "${_REGISTRY}/waitlist-promoter:lab", .]
+  - name: gcr.io/cloud-builders/docker
+    args: [build, --target, housekeeping, --tag, "${_REGISTRY}/housekeeping:lab", .]
+images:
+  - ${_REGISTRY}/web:lab
+  - ${_REGISTRY}/ticket-worker:lab
+  - ${_REGISTRY}/waitlist-promoter:lab
+  - ${_REGISTRY}/housekeeping:lab

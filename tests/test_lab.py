@@ -457,37 +457,23 @@ def test_up_without_an_id_uses_the_cloud_shell_project_once_confirmed(lab, monke
     assert lab.chosen_project() == P
 
 
-def test_a_push_refused_for_a_moment_is_tried_again(lab, monkeypatch):
-    refused = (
-        'failed to do request: Head "https://asia-northeast3-docker.pkg.dev/v2/p/r/web/blobs/sha256:4": '
-        "dial tcp 108.177.97.82:443: connect: connection refused"
-    )
-    results = [(1, refused), (0, "sha256:b043")]
-    calls = []
-
-    def fake_run(cmd, **kw):
-        calls.append(cmd)
-        code, text = results.pop(0)
-        return subprocess.CompletedProcess(cmd, code, stdout=text if code == 0 else "", stderr=text if code else "")
-
-    monkeypatch.setattr(lab.subprocess, "run", fake_run)
+def test_images_wait_for_cloud_build_turned_on_a_moment_ago(lab, monkeypatch):
+    results = [(1, "ERROR: (gcloud.builds.submit) PERMISSION_DENIED: The caller does not have permission"), (0, "DONE")]
+    lab.write_tfvars({"project_id": P, "lab_parts": ["start"]})
+    monkeypatch.setattr(lab, "streamed", lambda command: results.pop(0))
     monkeypatch.setattr(lab.time, "sleep", lambda seconds: None)
-    lab.push("asia-northeast3-docker.pkg.dev/p/gdgoc-tickets/web:lab")
-    assert len(calls) == 2
+    lab.images()
+    assert results == []
 
 
-def test_a_push_denied_is_not_tried_again(lab, monkeypatch):
+def test_a_failing_image_build_is_not_retried(lab, monkeypatch):
     calls = []
-
-    def fake_run(cmd, **kw):
-        calls.append(cmd)
-        return subprocess.CompletedProcess(
-            cmd, 1, stdout="", stderr="denied: Permission 'artifactregistry.repositories.uploadArtifacts' denied"
-        )
-
-    monkeypatch.setattr(lab.subprocess, "run", fake_run)
+    lab.write_tfvars({"project_id": P, "lab_parts": ["start"]})
+    monkeypatch.setattr(
+        lab, "streamed", lambda command: calls.append(command) or (1, "Step #0: pip: no matching distribution")
+    )
     with pytest.raises(SystemExit):
-        lab.push("asia-northeast3-docker.pkg.dev/p/gdgoc-tickets/web:lab")
+        lab.images()
     assert len(calls) == 1
 
 
