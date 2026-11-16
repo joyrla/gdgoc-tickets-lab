@@ -8,7 +8,7 @@ docs/lab.ko.md says when to use each.
   ./lab event ID [--opens-in MINUTES] [--seats N] [--waitlist N] [--title TEXT]   create a published event
   ./lab load EVENT_ID [--users N] [--minutes M]   load test: visitors rush the event's opening
   ./lab coldstart              time the first request to web, then five more
-  ./lab github                 keyless sign-in for your copy; prints the three GitHub variables to add
+  ./lab github                 (optional) build the keyless sign-in for you, instead of the Console steps
   ./lab mail on|off            turn real email on or off
   ./lab code                   your latest sign-in code, from the logs (while email is off)
   ./lab check [NAME ...]       check what is built (every check without NAME)
@@ -82,8 +82,8 @@ MAIL_SECRETS = {"smtp-password": "the email provider's key", "mail-from": "the s
 TTL_GROUPS = ["registrations", "codes", "emails", "login_codes", "sent_emails"]
 
 # What ./lab up builds. Not push: students switch ticket-worker's subscription to Push by hand.
-# Not trust and deployer: ./lab github adds them.
-UP_PARTS = ["start", "database", "base", "topics", "web", "workers", "eventarc", "schedule", "warmup"]
+# Not trust: students build the keyless sign-in in the Console (./lab github can do it for them).
+UP_PARTS = ["start", "database", "base", "topics", "web", "workers", "eventarc", "schedule", "warmup", "deployer"]
 PART_BUILT = {
     "start": "APIs and the image registry gdgoc-tickets (GitHub Actions pushes the images)",
     "database": "the Firestore database (default)",
@@ -581,7 +581,7 @@ def push_state(cloud: Cloud) -> str:
 
 def up_parts(values: dict, cloud: Cloud) -> list:
     """What ./lab up applies: UP_PARTS, push when the student already switched to Push, and
-    every part already on (trust and deployer once ./lab github ran)."""
+    every part already on (trust once ./lab github built it)."""
     return add_parts(values, UP_PARTS + (["push"] if push_state(cloud) == "set" else []))
 
 
@@ -1618,9 +1618,11 @@ def check_trust(c: Cloud, r: Result) -> None:
     )
     condition = provider.get("attributeCondition", "")
     r.expect(
-        bool(repo_id) and f"'{repo_id}'" in condition and "refs/heads/main" in condition,
+        bool(repo_id)
+        and (f"'{repo_id}'" in condition or f'"{repo_id}"' in condition)
+        and "refs/heads/main" in condition,
         f"  only repository {repo_id}, only main",
-        f"  the condition should name your repository ID {repo_id or '(./lab env github)'} and refs/heads/main",
+        f"  the condition should name your repository ID {repo_id or '(Sign-in test prints it)'} and refs/heads/main",
     )
     users = members(c.policy("sa", c.sa("deployer")), "roles/iam.workloadIdentityUser")
     mine = member_of(c, "github", repo_id)
@@ -1635,8 +1637,8 @@ def check_trust(c: Cloud, r: Result) -> None:
     r.expect(
         deployer in members(c.policy("repo", "gdgoc-tickets"), "roles/artifactregistry.writer")
         and deployer in members(c.policy("project", ""), "roles/run.developer"),
-        "the deployer's roles (./lab deployer)",
-        "the deployer's roles are missing (./lab deployer)",
+        "the deployer's roles (./lab up)",
+        "the deployer's roles are missing (./lab up)",
     )
     if repo:
         variables = {

@@ -2,24 +2,24 @@
 
 You put a finished event-signup service into your own Google Cloud project, then sign up and cancel on it yourself and follow where each request goes through the cloud.
 
-1. **Setup**: make a project and your own GitHub repository, then build everything with one command.
-2. **Connect**: connect GitHub to Google Cloud and the email service to Google Cloud, by hand.
-3. **Walkthrough**: sign up, cancel and run a rush of signups in the app, then follow what happens through the emails that really arrive and the Console. A few things you break on purpose and fix.
+1. **Setup**: make a project and your own GitHub repository, then build the infrastructure with one command.
+2. **Connect**: connect GitHub to Google Cloud by hand in the Console, ship your first deploy as a pull request, and connect the email service.
+3. **Walkthrough**: cause signups, cancels and a rush in the app, then follow what happens through the emails that really arrive and the Console. A few things you break on purpose and fix.
 
 | | |
 |---|---|
 | Level | Introductory (200) |
-| Time | 70-minute session + about 4 hours over two weeks (in four sittings) |
 | Cost | Taken from the free trial credit. A 12,000 won budget alert is set. Real cost is a few thousand won |
 | Last checked | 2026-11-16 |
 
 **By the end you can**
 
 - Connect GitHub to Google Cloud without keys, and explain why another repository or branch is refused
+- Ship code through a branch, pull request, checks, merge and deploy, and tell apart what tests stop and what a 0% deploy stops
 - Keep a third-party key in Secret Manager and explain who can read it
 - Follow one signup through `web` → Pub/Sub → worker → Firestore → email, in the Console and the logs
-- Read a 403, a retry, a dead letter and a failed deploy, and find the one setting behind each
-- Compare autoscaling, concurrency, cold start and pre-warm with your own measurements
+- Read a 403, a retry and a dead letter, and find the one setting behind each
+- Explain autoscaling, cold start and pre-warm with your own measurements
 
 ## Before you start
 
@@ -27,6 +27,7 @@ You put a finished event-signup service into your own Google Cloud project, then
 |---|---|
 | A Google account | A personal Gmail account that can use the free trial. School accounts may block projects or billing |
 | A GitHub account | Accept the instructor's invitation to the lab repository first ([github.com/notifications](https://github.com/notifications)) |
+| VS Code and git | For changing code, from Mission 2. Without them, use GitHub's web editor (press `.` on your repository's page) |
 | A mail key and a sender address | Your instructor sends them in a private message. You use them in Mission 3 |
 
 **Every time you open Cloud Shell,** first go to your repository's folder. Every `./lab` command runs from there.
@@ -39,20 +40,13 @@ cd ~/gdgoc-tickets
 
 **Email limit.** Everyone shares one mail key's limit (100 emails a day). Following this sheet sends about 15 emails per person over two weeks. Don't send more than 10 in one day.
 
-## How to read this
+**In the Console**
 
-- **The site** is the address `./lab up` prints on its last line (`https://web-...run.app`).
-- ☰ is the navigation menu at the top left of the Console. "☰ → **Cloud Run → Services**" means: in ☰, point at **Cloud Run** and click **Services**.
-- **Pub/Sub, Eventarc, Cloud Scheduler and Logging are not in the default ☰ list.** Once, open ☰ → **View all products** and click the ☆ on those four rows; they then appear under **Favorite products** at the top of ☰.
-- Bold text is a button or field in the Console, on GitHub or on the site. The site is in Korean; its labels are given in Korean with the English meaning. If your Console is in Korean, use the Korean sheet (`lab.ko.md`).
-- On every Console screen, first check that the project menu at the top shows your lab project.
-- Copy and run the commands as they are. The only value you change is `you@gmail.com` (your Gmail address).
+- On every screen, first check that the project menu at the top shows your lab project.
+- Pub/Sub, Eventarc, Cloud Scheduler and Logging are not in the default ☰ list. Once, open ☰ → **View all products** and click the ☆ on those four rows; they then appear at the top of ☰.
+- The Console's **Jobs** are this sheet's jobs.
 
-**Each mission** has, in order: **Where** (where you work), **Do**, **Email**, **Where to look**, **Check** and **Why**.
-
-**Submission cues:** **Submit 1** to **Submit 6** are required screenshots; **Optional** ones are up to you. They are collected in [Submission](#submission) at the end.
-
-**When stuck:** after 20 minutes, post the mission number, the `./lab check` output and the error screen in the help thread. If something is broken, running `./lab up` again puts every setting back to the code's version.
+**When stuck:** after 20 minutes, post the mission number, the `./lab check` output and the error screen in the help thread. If something is broken, run `./lab up` again: every setting goes back to the code's version.
 
 ## If you know AWS
 
@@ -78,7 +72,7 @@ cd ~/gdgoc-tickets
 
 | Component | What it does |
 |---|---|
-| `web` (Cloud Run service, public) | Event pages and API. Saves the seat in Firestore, leaves a ticket request message, and answers at once |
+| `web` (Cloud Run service, public) | Event pages and API. Saves the seat in Firestore, leaves a "make a ticket" message, and answers at once |
 | Pub/Sub topic `registrations` and subscription `ticket-worker` | Holds messages and delivers them to the worker. Retries on failure; after 5 failures, moves the message to `dead-letter` |
 | `ticket-worker` (service, internal only) | Makes the QR ticket, and sends the emails that arrive on the `emails` topic |
 | Eventarc trigger and `waitlist-promoter` (service, internal only) | When a registration changes (a cancel), gives the seat to the first person waiting |
@@ -86,39 +80,39 @@ cd ~/gdgoc-tickets
 | Firestore | Events, registrations, seat counters |
 | Secret Manager | The mail key (`smtp-password`) and the app's secret values |
 | 8 service accounts | One per component, with only the permissions it needs |
-| GitHub Actions (your repository) | On every push to `main`: checks, image builds, deploy |
+| GitHub Actions (your repository) | Checks on every pull request; on a merge to `main`, image builds and deploy |
 | Resend (an email service outside Google Cloud) | Sends the real emails |
 
-## The eight key moments
+**Who does what.** Terraform builds the infrastructure (services, queues, permissions) once, with `./lab up`, and GitHub Actions deploys the app. Right after `./lab up` the services run Google's sample image; the first deploy in Mission 2 replaces it with the real app.
 
-Missions 0, 1, 3 and 12 are setup and wrap-up.
+## The seven key moments
+
+Missions 0, 1, 3 and 10 are setup and wrap-up.
 
 | | Moment | Mission | What you learn |
 |---|---|---|---|
-| 1 | Connect GitHub without keys and watch another branch get refused | 2 | Keyless deploy, the trust condition |
-| 2 | Follow one signup through `web` → Pub/Sub → worker → Firestore | 4 | How a whole cloud system fits together, asynchronous work |
-| 3 | Connect the queue to the worker yourself and fix the 403 | 5 | Messages kept in the queue, ingress vs IAM |
-| 4 | Break the worker and watch retries and the dead letter | 6 | Failed messages kept; idempotency |
-| 5 | Cancel and watch the waiting person get the seat and the email | 7 | Event-driven design |
-| 6 | Split traffic to a new revision and roll back; watch broken code get stopped | 8, 9 | Revisions, safe deploys, rollback in seconds |
-| 7 | Measure a cold start, then watch pre-warm before an opening | 10 | Scale to zero, cold start, cost |
-| 8 | 300 signups at once, then another concurrency | 11 | Autoscaling, concurrency, the throughput limit |
+| 1 | Connect GitHub to Google Cloud by hand without keys, and watch another branch get refused | 2 | Keyless deploy, the trust condition |
+| 2 | Follow one signup, connect the queue to the worker yourself, and fix the 403 | 4 | Asynchronous work, ingress vs IAM |
+| 3 | Break the worker and watch retries and the dead letter | 5 | Failures are kept, not lost; idempotency |
+| 4 | Cancel and watch the waiting person get the seat and the email | 6 | Event-driven design |
+| 5 | A bug the tests stop, a problem the 0% deploy stops, and a revert | 7 | CI and CD, revisions, rollback |
+| 6 | Measure a cold start, then watch pre-warm before an opening | 8 | Scale to zero, cold start, cost |
+| 7 | 300 visitors at once | 9 | Autoscaling, where throughput stops |
 
 ## Schedule
 
-| Sitting | Missions | Time |
-|---|---|---|
-| 1 (session) | 0 Setup, 1 Look around | 70 min |
-| 2 | 2 Connect GitHub, 3 Connect email | 50 min |
-| 3 | 4 Follow one signup, 5 Connect the queue to the worker, 6 Worker failure and dead letter | 55 min |
-| 4 | 7 Cancel and events, 8 Revisions and rollback, 9 Deploy broken code | 50 min |
-| 5 | 10 Cold start and pre-warm, 11 The rush, 12 Cost and pause, submission | 70 min |
+| Sitting | Missions |
+|---|---|
+| 1 (session) | 0 Setup, (1 Look around) |
+| 2 | 2 Connect GitHub and first deploy, 3 Connect email |
+| 3 | 4 Signup and queue, 5 Worker failure and dead letter, 6 Cancel and events |
+| 4 | 7 Pull requests and safe deploys, 8 Cold start, 9 The rush, 10 Pause and submit |
 
 ---
 
 # Part 1. Setup
 
-## Mission 0. Project, budget, your repository, build it all (20 min + 25 min waiting)
+## Mission 0. Project, budget, your repository, build it all
 
 **Where:** Console, GitHub, Cloud Shell
 
@@ -149,7 +143,7 @@ Missions 0, 1, 3 and 12 are setup and wrap-up.
    - `gh repo clone gdgoc-tickets`: gets the signed-in account's `gdgoc-tickets` (the repository you made in step 5).
    - `./lab up`: shows the name and ID of the project Cloud Shell is using (the yellow text in the prompt) and asks. If it is the project from step 1, type `y`; if not, press Enter, pick the project at the top of the Console and reopen Cloud Shell.
 
-What `./lab up` does: installs tools, turns on APIs, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. It takes about 15 minutes. Do Mission 1 while you wait. The app's images don't exist yet, so the services start on Google's sample image; GitHub Actions deploys the real app for the first time in Mission 2.
+What `./lab up` does: installs tools, turns on APIs, then uses Terraform to create 3 services, a job, the topics and subscriptions, an Eventarc trigger, the schedule, 8 service accounts, 4 secrets and about 30 permissions. Do Mission 1 while you wait. The app's images don't exist yet, so the services start on Google's sample image; GitHub Actions deploys the real app for the first time in Mission 2.
 
 **If it stops, run `./lab up` again.** Whatever the error, the same command keeps what was built and continues. While you wait, keep the Cloud Shell tab open and press Enter now and then: Cloud Shell shuts down after 40 minutes without input.
 
@@ -173,7 +167,8 @@ What `./lab up` does: installs tools, turns on APIs, then uses Terraform to crea
 | `Google Cloud is not ready yet` | Common in a new project. The command retries by itself a minute later |
 | Cloud Shell disconnected (it shuts down after 40 minutes without input) | Reopen it and run `cd ~/gdgoc-tickets && ./lab up`; it keeps what was built and continues. If it asks to unlock, type `y` |
 
-## Mission 1. Look around (15 min, while `./lab up` runs)
+
+## Mission 1. Look around (optional, while `./lab up` runs)
 
 **Where:** Console
 
@@ -192,7 +187,7 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
 
 1. `tickets-web`. Every service runs as its own service account.
 2. `tickets-web`, `tickets-waitlist-promoter`, `tickets-housekeeping` (Pub/Sub Publisher). Signups, waitlist promotions and resent stuck tickets all send messages to this topic.
-3. **Pull**. After 5 failures a message moves to the `dead-letter` topic. Mission 5 switches it to Push.
+3. **Pull**. After 5 failures a message moves to the `dead-letter` topic. Mission 4 switches it to Push.
 4. `tickets-pubsub-push` (Cloud Run Invoker). Right now the `mailer` subscription (email) signs as this account to call `ticket-worker`. The `ticket-worker` subscription is still Pull, so it doesn't use it yet.
 5. A Firestore document update (`document.v1.updated`), only for documents under `registrations/`. The change goes to `waitlist-promoter`.
 </details>
@@ -201,68 +196,86 @@ Look at what is being built. Parts appear in the Console as `./lab up` finishes 
 
 **Why.** The Console shows what exists now, one component at a time. How the components connect only shows when you follow it, as in these five questions. The code (`infra/*.tf`) records each setting and why it is there.
 
+
 ---
 
 # Part 2. Connect
 
-You connect two outside services to what was built: GitHub (push code, get a deploy) and Resend (send email). Neither connection puts a key in the code.
+## Mission 2. Connect GitHub to Google Cloud, first deploy
 
-## Mission 2. Connect GitHub to Google Cloud (30 min)
+**Where:** GitHub, Console, VS Code
 
-**Where:** Cloud Shell, GitHub, Console
+**Problem.** To deploy to your project, GitHub Actions must sign in to Google Cloud. A service account key stored in GitHub would let anyone deploy the moment it leaked. So instead of a key you build a trust: "only GitHub Actions runs from this repository, on `main`, count as the deploy account."
 
-**Problem.** To deploy to your project, GitHub Actions must sign in to Google Cloud. A service account key stored in GitHub would let anyone deploy the moment it leaked.
+**Do. Test before connecting**
+1. Your repository → **Actions** → left **Sign-in test** → **Run workflow** → **Run workflow**. There is no trust yet, so it fails.
+2. Open the failed run → **sign-in** → expand **What GitHub says about this run**. The number after `repository_id:` is your `REPOSITORY_ID`; write it down. GitHub puts it in the token it sends to Google Cloud on every run.
 
-**Do.**
-1. Build the keyless sign-in. At the end it prints three GitHub variables and their values.
+**Do. Build the trust (Console)**
 
-   ```bash
-   ./lab github
-   ```
+3. ☰ → **IAM & Admin → Workload Identity Federation** → **Create pool**.
+   - **Create an identity pool**: **Name** `github`; the **Pool ID** becomes `github` too. **Continue**
+   - **Add a provider to pool**: **Select a provider** → **OpenID Connect (OIDC)**. **Provider name** `gdgoc-tickets` (the **Provider ID** becomes `gdgoc-tickets`). **Issuer (URL)** `https://token.actions.githubusercontent.com`. Leave **Audiences** on **Default audience**. **Continue**
+   - **Configure provider attributes**: fill three attribute mappings; make the second and third rows with **Add mapping**.
 
-2. Your repository (the address in the `./lab github` output) → **Settings** → left **Secrets and variables → Actions** → **Variables** tab → **New repository variable**. Add `GCP_PROJECT_ID`, `WIF_PROVIDER` and `DEPLOYER_SA` one at a time, copying the values from the `./lab github` output. They are not secret, so they go in the **Variables** tab, not **Secrets**.
-3. Wait two minutes, then **Actions** → left **Sign-in test** → **Run workflow** → **Run workflow**.
+     | Google | OIDC |
+     |---|---|
+     | `google.subject` | `assertion.sub` |
+     | `attribute.repository_id` | `assertion.repository_id` |
+     | `attribute.ref` | `assertion.ref` |
 
-**Where to look.**
-- The run → the **Signed in as the deployer** step
-- ☰ → **IAM & Admin → Workload Identity Federation** → `github` → provider `gdgoc-tickets` → **Attribute condition**
+   - **Attribute conditions** → **Add condition** → put this in **Condition CEL**, changing only `REPOSITORY_ID` to the number from step 2 → **Save**
 
-**Check.** A green tick. It signed in as `tickets-deployer`. The attribute condition holds your repository's ID and `refs/heads/main`. `./lab check github`.
+     ```
+     assertion.repository_id == 'REPOSITORY_ID' && assertion.ref == 'refs/heads/main'
+     ```
 
-4. Try another branch. Your repository's main page → the branch menu at the top left (**main**) → type `try-branch` → **Create branch try-branch from main**. Then **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**.
+4. On the new pool `github` → **Grant access** → **Grant access using service account impersonation**.
+   - **Select service account**: `tickets-deployer`
+   - **Select principals**: attribute name `repository_id`, attribute value `REPOSITORY_ID`
+   - **Save**. If a window offers a configuration file to download, close it without downloading.
 
-**Check.** It fails. Take a screenshot of the failed step's error (**Submit 1**). Then delete the branch: the branch menu → **View all branches** → the trash icon on the `try-branch` row.
+**Do. Tell GitHub**
 
-5. Turn deploys on. **Variables** tab → **New repository variable**: `DEPLOY_ENABLED` = `true`.
-6. Your first deploy. Change one sentence on the home page and push it.
+5. Your repository → **Settings** → left **Secrets and variables → Actions** → **Variables** tab → **New repository variable**, three times. They are not secret, so they go in the **Variables** tab, not **Secrets**.
 
-   ```bash
-   cloudshell edit web/templates/home.html
-   ```
+   | Name | Value | Where to find it |
+   |---|---|---|
+   | `GCP_PROJECT_ID` | `PROJECT_ID` | The project menu at the top of the Console |
+   | `WIF_PROVIDER` | `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/gdgoc-tickets` | `PROJECT_NUMBER`: ☰ → **Cloud overview → Dashboard**, **Project info** |
+   | `DEPLOYER_SA` | `tickets-deployer@PROJECT_ID.iam.gserviceaccount.com` | ☰ → **IAM & Admin → Service accounts** |
 
-   On line 7, replace `행사를 찾아 신청하고 QR 티켓으로 입장하세요.` with any sentence, and save (Ctrl+S).
+6. Wait two minutes, then run **Sign-in test** again. This time it passes.
+7. Try another branch. Your repository's main page → the branch menu at the top left (**main**) → type `try-branch` → **Create branch try-branch from main**. **Actions** → **Sign-in test** → **Run workflow** → **Branch** `try-branch` → **Run workflow**. It fails. Take a screenshot of the failed step's error (**Submit 1**). Then the branch menu → **View all branches** → the trash icon on the `try-branch` row.
+8. Turn deploys on. **Variables** tab → **New repository variable**: `DEPLOY_ENABLED` = `true`.
 
-   ```bash
-   git commit -am "First deploy" && git push
-   ```
+**Do. First deploy (pull request)**
 
-**Where to look.** **Actions** → the new run (**CI/CD**) → the steps of the `deploy` job. ☰ → **Cloud Run** → `web` → **Revisions** tab.
+9. Get it on your computer. VS Code → left **Source Control** → **Clone Repository** → **Clone from GitHub** → sign in to GitHub → `gdgoc-tickets` → pick a folder → **Open**.
+10. Bottom left of VS Code, the branch name (**main**) → **Create new branch...** → `first-deploy`.
+11. In `web/templates/home.html`, replace line 7, `행사를 찾아 신청하고 QR 티켓으로 입장하세요.`, with any sentence, and save.
+12. **Source Control** → message `First deploy` → **Commit** → **Publish Branch**.
+13. Your repository on GitHub → **Compare & pull request** in the yellow bar → **Create pull request**. The checks (**Checks**) run below it. Nothing is deployed at this stage.
+14. When all checks are green, **Merge pull request** → **Confirm merge**.
 
-**Check.** About 7 minutes later every job is green, the site changes from the sample page to the real site, and its home page shows your sentence. `web`'s new revision has 100%. `./lab check deploys`.
+**Where to look.** **Actions** → the **CI/CD** run started on `main` → the steps of the `deploy` job. ☰ → **Cloud Run** → `web` → **Revisions** tab.
 
-**Why.** For every run GitHub issues a short-lived token that contains the repository ID and the branch. Google Cloud accepts only tokens that match the attribute condition (your repository ID, `main`) and exchanges them for a short-lived `tickets-deployer` token. With no stored key, there is no key to leak or rotate. The same repository on another branch is refused, and someone else's repository has another ID. The three variables only say where to sign in.
+**Check.** When the deploy ends, every job is green, the site changes from the sample page to the real site, and its home page shows your sentence. `web`'s new revision has 100%. In Cloud Shell: `./lab check github deploys`.
+
+**Why.** For every run GitHub issues a short-lived token that contains the repository ID and the branch. The provider from step 3 checks that the token comes from GitHub (the issuer) and accepts only tokens that match the attribute condition (your repository ID, `main`). The grant from step 4 lets only those tokens act as `tickets-deployer`. With no stored key, there is no key to leak or rotate. The condition uses the ID, not the name, so a repository someone recreates under the same name after a deletion does not pass. On a pull request only the checks run; a deploy happens only after the merge to `main`, so `main` always holds code that passed its checks.
 
 **Stuck?**
 
 | Symptom | Fix |
 |---|---|
-| `./lab github` says `not your own copy` | Mission 0, steps 5 and 6. Run it from your repository's folder, not from a clone of the template |
-| The sign-in test fails with `getAccessToken` | The permission is still spreading. Run it again in two minutes |
+| The second Sign-in test fails with `rejected by the attribute condition` | The condition's `REPOSITORY_ID` must equal the number from step 2, in single quotes |
+| `Permission 'iam.serviceAccounts.getAccessToken' denied` | Still spreading: run it again in two minutes. If it stays, the attribute value in step 4 must be `REPOSITORY_ID` |
+| `invalid_target`, or the provider is not found | `WIF_PROVIDER` needs the project **number** (not the ID), spelled exactly |
 | The `deploy` job is skipped | `DEPLOY_ENABLED` must be exactly `true` |
 | The `emulator` job fails with `Transaction lock timeout` | A brief delay in the test database. **Re-run failed jobs** on the run's page |
-| `git push` is refused | Sign in again with `gh auth login --web --scopes workflow` |
+| Stuck in the Console steps | In Cloud Shell, `./lab github` builds the same trust for you and prints the variable values |
 
-## Mission 3. Connect email (20 min)
+## Mission 3. Connect email
 
 **Where:** Console, Cloud Shell, the site, your inbox
 
@@ -289,13 +302,14 @@ Email is off for now: every email the app would send only shows as `not sent` in
 
 > **Optional:** the code email in your inbox (code hidden), `smtp-password`'s **Permissions** tab
 
+
 ---
 
 # Part 3. Walkthrough
 
 **In the app** lists the buttons to press on the site; **Email** is what should then arrive in your inbox. Every subject starts with `[Cloud Ticketing]`.
 
-## Mission 4. Follow one signup (20 min)
+## Mission 4. Follow one signup, connect the queue
 
 **Where:** the site, your inbox, Console
 
@@ -315,17 +329,9 @@ Email is off for now: every email the app would send only shows as `not sent` in
 - ☰ → **Firestore** → `(default)` → **Firestore Studio** → `registrations`: your new document and its `status`
 - ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Messages** tab → **Pull**. Leave **Enable ack messages** unticked. Pull only once (each pull counts as a delivery attempt).
 
-**Check.** The ticket stays at **티켓 발급 중** (Issuing your ticket), and no email arrives. One `{"registration_id": ...}` message is waiting in the subscription.
+**Check.** The ticket stays at **티켓 발급 중** (Issuing your ticket), and no email arrives. One `{"registration_id": ...}` message is waiting in the subscription. `web` saved the seat, left the message and answered at once, but the subscription is **Pull**, so the message is kept until someone takes it.
 
-**Why.** `web` saved the seat in Firestore, left a message and answered right away. The subscription is **Pull** for now, so it keeps the message until someone takes it. The confirmation email is sent by the worker that issues the ticket, so while the message has not reached the worker there is no email either. Because signup and ticketing are split, signups keep working even when ticketing is slow or stopped.
-
-> **Optional:** the waiting message and the "issuing" ticket page
-
-## Mission 5. Connect the queue to the worker (15 min, by hand)
-
-**Where:** Console, your inbox
-
-**Do.**
+**Do. Connect the queue to the worker (by hand)**
 1. ☰ → **Cloud Run → Services** → copy the **URL** of `ticket-worker`.
 2. ☰ → **Pub/Sub → Subscriptions** → `ticket-worker` → **Edit**.
 3. **Delivery type**: **Push**. **Endpoint URL**: the URL you copied. Leave **Enable authentication** **unticked** → **Update**.
@@ -334,19 +340,19 @@ Email is off for now: every email the app would send only shows as `not sent` in
 
 **Check.** `403` and `The request was not authenticated` repeat. Still no email. When you see it 2 or 3 times, take a screenshot of the log (**Submit 2**) and fix it right away. After 5 failures the message moves to `dead-letter`.
 1. Subscription → **Edit** → tick **Enable authentication** → **Service account** `tickets-pubsub-push` → **Update**.
-2. Wait for your Mission 4 signup. Do not sign up again.
+2. Wait for your first signup. Do not sign up again.
 
-**Email.** Within a minute or two of the fix: `신청 완료: 연결 확인` (signup complete). Its link opens the ticket, now with a QR code.
+**Email.** Soon after the fix: `신청 완료: 연결 확인` (signup complete). Its link opens the ticket, now with a QR code.
 
 (Optional) Check the setting: `./lab check push`
 
-**Why.** `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub may come in (from the internet they get 404). But it requires authentication, so an unsigned request gets 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, which holds **Cloud Run Invoker** on `ticket-worker`. Network entry (ingress) and permission to call (IAM) are separate settings.
+**Why.** Signup and ticketing are split by a message, so signups keep working even when ticketing is slow or stopped. The confirmation email is sent by the worker that issues the ticket, so there is no email until the message reaches the worker. `ticket-worker`'s ingress is **Internal**, so requests from Pub/Sub may come in (from the internet they get 404). But it requires authentication, so an unsigned request gets 403. With authentication on, Pub/Sub signs as `tickets-pubsub-push`, which holds **Cloud Run Invoker** on `ticket-worker`. Getting through the door (ingress) and being allowed in (IAM) are separate settings.
 
 > **Submit 2 screenshot:** the `403` log (before the fix), the ticket with its QR code (after)
 
-**Stuck?** If no email comes and the ticket stays "issuing" after the fix, the message already moved to `dead-letter`. Send it back with the replay in Mission 6.
+**Stuck?** If no email comes and the ticket stays "issuing" after the fix, the message already moved to `dead-letter`. Send it back with the replay in Mission 5.
 
-## Mission 6. Worker failure and dead letter (20 min)
+## Mission 5. Worker failure and dead letter
 
 **Where:** Console, the site (private window), your inbox, Cloud Shell
 
@@ -361,7 +367,7 @@ Email is off for now: every email the app would send only shows as `not sent` in
 **Where to look.**
 - `ticket-worker` logs: `simulated failure` and `500`
 - Subscription `ticket-worker` → **Dead lettering** tab: where failed messages go
-- 2 to 3 minutes later, subscription `dead-letter` → **Messages** → **Pull** (**Enable ack messages** unticked)
+- Once the `500`s stop, subscription `dead-letter` → **Messages** → **Pull** (**Enable ack messages** unticked)
 
 **Check.** The signup succeeds. `500` repeats a few times and stops, and the message is in `dead-letter`. Take both screenshots before fixing (**Submit 3**).
 
@@ -378,7 +384,8 @@ Now fix it.
 
 > **Submit 3 screenshot:** the repeated `500` logs and the message waiting in `dead-letter` (both before the fix)
 
-## Mission 7. Cancel and events (15 min)
+
+## Mission 6. Cancel and events
 
 **Where:** the site (normal and private windows), your inbox, Console
 
@@ -403,70 +410,43 @@ Now fix it.
 
 **Check.** Within seconds the private window's ticket shows a QR code and the `자리 배정` email arrives.
 
-**Why.** The cancel changes a Firestore document; Eventarc delivers that change to `waitlist-promoter`, which gives the seat to the first person waiting and leaves a message on the `registrations` topic, so the ticket and the `자리 배정` email go out the same way as in Missions 4 to 6. `web` knows nothing about the waitlist. Because the system reacts to the data change itself, a cancel from anywhere is handled in one place. If delivery fails, the job that runs every 5 minutes fills free seats anyway.
+**Why.** The cancel changes a Firestore document; Eventarc delivers that change to `waitlist-promoter`, which gives the seat to the first person waiting and leaves a message on the `registrations` topic, so the ticket and the `자리 배정` email go out the same way as in Missions 4 and 5. `web` knows nothing about the waitlist. Because the system reacts to the data change itself, a cancel from anywhere is handled in one place. If delivery fails, the job that runs every 5 minutes fills free seats anyway.
 
 > **Optional:** the `자리 배정` email and the `waitlist-promoter` log
 
-## Mission 8. Revisions and rollback (15 min)
 
-**Where:** Console, Cloud Shell
+## Mission 7. Pull requests, checks, safe deploys
 
-**Do.**
-1. ☰ → **Cloud Run** → `web` → **Containers** tab → **Add variable**: `LAB_NOTE` = `v2`.
-2. **Review changes and redeploy** → **untick** **Serve this revision immediately** at the bottom → **Deploy changes**.
-3. `web` → **Revisions** tab.
+**Where:** VS Code, GitHub, Console, the site
 
-**Check.** There is a new revision with 0% of traffic. The revision GitHub deployed in Mission 2 is in the list too.
+**Problem.** Code that passes the tests can still fail in the real environment. You make two mistakes on purpose and see where each one is stopped.
 
-4. **Revisions** → **Manage traffic**: new revision 50%, previous revision 50% → **Save**.
-5. See which revision answers, ten times.
+**Do. A bug the tests stop (CI)**
+1. VS Code → branch `main` → **Pull** (sync) → a new branch `seat-bug`.
+2. In `shared/models.py`, line 121, change `held < self.seat_limit` to `held <= self.seat_limit`. The bug lets one more person in after the event is full.
+3. Commit → **Publish Branch** → open a pull request on GitHub.
 
-   ```bash
-   URL=$(gcloud run services describe web --region asia-northeast3 --format='value(status.url)')
-   for i in $(seq 10); do curl -sI "$URL/health" | grep -i x-served-by; done
-   ```
+**Check.** The checks' `test` job is red. The failing test is `test_never_oversells_under_concurrency`, with `assert 31 == 30` (31 people for 30 seats). Do not merge: **Close pull request**. `main` and the site are unchanged.
 
-   Both revision names appear, mixed. Take a screenshot (**Submit 4**).
-6. Roll back: in **Manage traffic**, set the previous revision to 100% → **Save**. Now only one name appears.
-7. Finally, set the latest revision back to 100%.
+**Do. A problem the tests cannot see (CD)**
+4. VS Code → `main` → a new branch `wrong-port`.
+5. In `Dockerfile`, line 42 (the `web` stage), change `--port ${PORT:-8080}` to `--port 3000`. The container now answers on a port other than the 8080 Cloud Run waits on.
+6. Commit → **Publish Branch** → pull request. All checks are green. **Merge pull request** → **Confirm merge**.
 
-**Why.** Every deploy creates a new revision, and how much traffic it gets is a separate decision. A rollback just moves traffic back to a revision that already exists, with no build, so it takes seconds. In Mission 9 the automatic deploy uses the same idea to stop a broken version.
+**Where to look.** **Actions** → the **CI/CD** run on `main` → the `deploy` job. ☰ → **Cloud Run** → `web` → **Revisions** tab.
 
-> **Submit 4 screenshot:** the **Revisions** tab split 50/50 and the `curl` output
+**Check.** The new revision starts at 0% of traffic and fails. The failed step is **Start the new revisions with no traffic**, with Cloud Run's error `The user-provided container failed to start and listen on the port defined provided by the PORT=8080 environment variable`. Then **Put everything back** runs and traffic stays on the previous revision. The site keeps working. Take a screenshot of that **Revisions** tab and of the failed step (**Submit 4**).
 
-## Mission 9. Deploy broken code (20 min)
+**Do. Undo it**
+7. GitHub → the merged pull request `wrong-port` → **Revert** at the bottom → **Create pull request** → when its checks are green, **Merge pull request** → **Confirm merge**.
 
-**Where:** Cloud Shell, GitHub, Console, the site
+**Check.** The next deploy starts a new revision at 0%, checks it, then moves it to 100%. The image tag is the commit SHA.
 
-**Do.**
-1. Add code that fails only on Cloud Run. Open `cloudshell edit web/events.py`, add these two lines at the top of the `home` function, and save.
+**Why.** CI (the checks on a pull request) stops mistakes in the code before they reach `main`. But some mistakes, like the port, exist only in the real environment. CD (the deploy) starts each new version as a revision with 0% of traffic and moves traffic only after it starts and passes its check. If it fails, traffic stays on the previous revision, and users notice nothing. A revision and its traffic are separate settings, so a rollback only moves traffic, with no build. **Revert** ships a new change that undoes the old one, through the same pipeline.
 
-   ```python
-       if get_settings().on_cloud_run:  # only on Cloud Run, so the tests still pass
-           raise RuntimeError("deliberate failure")
-   ```
+> **Submit 4 screenshot:** the failed deploy step and the **Revisions** tab at that moment (the failed revision, traffic still 100% on the previous one)
 
-   ```bash
-   git commit -am "Break on Cloud Run" && git push
-   ```
-
-**Where to look.** Your repository's **Actions** → the new run → the steps of the `deploy` job, and `web`'s **Revisions** tab.
-
-**Check.** The new revision starts at 0%, fails at **Smoke test web's new revision**, and **Put everything back** runs. The site's home page keeps working.
-
-2. Revert it and watch a good deploy.
-
-   ```bash
-   git revert --no-edit HEAD && git push
-   ```
-
-   The new revision passes its check at 0%, then gets 100%. The image tag is the commit SHA.
-
-**Why.** A deploy sends traffic to a new revision only after it passes a check at 0%; if it fails, traffic stays on the previous revision. GitHub Actions does in order what you did by hand in Mission 8.
-
-> **Optional:** the failed **Smoke test web's new revision** step and the **Revisions** tab at that moment
-
-## Mission 10. Cold start and pre-warm (25 min, with waiting)
+## Mission 8. Cold start and pre-warm
 
 **Where:** Cloud Shell, Console
 
@@ -490,7 +470,8 @@ Now fix it.
 
 > **Submit 5 screenshot:** the `./lab coldstart` output, the graph with 3 instances before the opening
 
-## Mission 11. The rush (25 min)
+
+## Mission 9. The rush
 
 **Where:** Cloud Shell, Console
 
@@ -509,28 +490,22 @@ Now fix it.
 - Subscription `ticket-worker` → **Metrics**: unacked messages
 - Firestore Studio → `event_counts` → `rush-a`: `held` (registrations holding a seat) and `issued` (tickets issued)
 
-**Check.** Locust's `Signups:` line and response-time table, and `held` = `issued` = 100. Write them in the measurement table and take the screenshots (**Submit 6**). Because the event opens within minutes, pre-warm (Mission 10) may have started 3 instances already; look at how many more than 3 the graph shows.
+**Check.** Locust's `Signups:` line and response-time table, and `held` = `issued` = 100. Write them in the measurement table and take the screenshots (**Submit 6**). Because the event opens within minutes, pre-warm (Mission 8) may have started 3 instances already; look at how many more than 3 the graph shows.
 
-3. Measure again with another concurrency. `web` → **Containers** tab → **Maximum concurrent requests per instance** `2` → **Review changes and redeploy** → **Deploy changes**.
-4. **새 행사 만들기** once more: **행사 이름** `신청 몰림 C`, **주소** `rush-c`, **신청 시작** 2 minutes from now, **정원** `100`, **대기 정원** `50`, tick **공개**. Then run it right away with 150 visitors.
-
-   ```bash
-   ./lab load rush-c --users 150 --minutes 4
-   ```
-
-5. When it ends, set concurrency back to `40`.
+(Optional) The comparison at concurrency 2 is under Further, at the end.
 
 **Why.** Cloud Run adds instances by looking at concurrent requests per instance. With lower concurrency, the same load needs more instances. Every signup changes the event's single seat-counter document in a transaction, so seats are exact but signups per second have a ceiling. More instances do not raise it.
 
 > **Submit 6 screenshot:** `web`'s instance count graph, the Locust result (`Signups:` line and response-time table)
 
-## Mission 12. Cost and pause (15 min)
+
+## Mission 10. Pause and report
 
 **Where:** Console, Cloud Shell
 
 **Do.**
 1. ☰ → **Billing → Reports**. Filter by your project and group by service. Costs appear about a day late.
-2. See how far your Console changes are from the code.
+2. (Optional) A preview of the next session: see how far your Console changes are from the code.
 
    ```bash
    ./lab drift
@@ -549,6 +524,7 @@ Now fix it.
 
 > **Optional:** the billing report (filtered by project, grouped by service)
 
+
 ---
 
 # Submission
@@ -565,32 +541,32 @@ One screenshot and one question per concept. Three to five sentences per answer 
 - Screenshot: **Submit 1**. The failed Sign-in test on `try-branch`
 - Question: what stops someone else's repository, or another branch, from deploying to your project? Why does GitHub not need to store a key?
 
-**2. Service accounts and IAM (Mission 5)**
+**2. Service accounts and IAM (Mission 4)**
 - Screenshot: **Submit 2**. The `403` in `ticket-worker`'s logs (before the fix), the ticket with its QR code (after)
 - Question: which setting let the request in, and which one refused it with 403? Which account, with which role, let it through?
 
-**3. Pub/Sub and asynchronous work (Mission 6)**
+**3. Pub/Sub and asynchronous work (Mission 5)**
 - Screenshot: **Submit 3**. The repeated `500` logs, the message waiting in `dead-letter`
 - Question: while the worker was failing, what did the person signing up experience, and what did they not (the signup page, the ticket, the email)? Where did the message end up, and why there?
 
-**4. Revisions and safe deploys (Mission 8)**
-- Screenshot: **Submit 4**. The **Revisions** tab split 50/50 and the `curl` output
-- Question: who sees a revision with 0% of traffic? Why does a rollback take only seconds?
+**4. CI, CD, revisions (Mission 7)**
+- Screenshot: **Submit 4**. The failed deploy step and the **Revisions** tab
+- Question: where was each of the two mistakes stopped, and why did the second one pass the checks? Which users saw the failed revision?
 
-**5. Cold start, pre-warm, cost (Mission 10)**
+**5. Cold start, pre-warm, cost (Mission 8)**
 - Screenshot: **Submit 5**. The `./lab coldstart` output, the graph with 3 instances before the opening
 - Question: why was the first request slow? How does pre-warm prevent it, and what does it cost? Name one case where pre-warm is not needed.
 
-**6. Autoscaling and concurrency (Mission 11)**
+**6. Autoscaling and throughput (Mission 9)**
 - Screenshot: **Submit 6**. The instance count graph, the Locust result
-- Question: how many instances did `web` reach, and why? What changed at concurrency 2? Why did signups per second stop rising even as instances were added?
+- Question: how many instances did `web` reach, and why? Why did signups per second stop rising even as instances were added?
 
 ## Required 2. Also hand in
 
-1. `~/lab-report.txt` (from `./lab check --report` in Mission 12)
+1. `~/lab-report.txt` (from `./lab check --report` in Mission 10)
 2. The measurement table
 
-   | | Concurrency 40 (`rush-a`) | Concurrency 2 (`rush-c`) |
+   | | `rush-a` (concurrency 40) | (Optional) `rush-c` (concurrency 2) |
    |---|---|---|
    | Most `web` instances | | |
    | Signup response, median (50%) | | |
@@ -606,37 +582,37 @@ One screenshot and one question per concept. Three to five sentences per answer 
 
 | Mission | Concept | Question |
 |---|---|---|
-| 1 | The parts | Your five answers. Which connection was hard to see from the Console alone? |
+| 1 | The components | Your five answers. Which connection was hard to see from the Console alone? |
 | 3 | Secret Manager | Which account can read the mail key? If the key leaked, what would you do? |
 | 4 | Pull subscription | The signup answered, so why were there no ticket and no email? Where was the message? |
-| 6 | Idempotency | Why is there one ticket and one email even if the same message arrives twice? |
-| 7 | Eventarc | Who gave the seat to the waiting person, and what started it? Of the four emails, why did `web` send some and the worker the others? |
-| 9 | Staged deploy | Why did the broken revision never reach users? |
-| 10 | Jobs and Cloud Scheduler | Why is `housekeeping` a job and not a service? |
-| 12 | Drift | Where did the differences in `./lab drift` come from? |
+| 5 | Idempotency | Why is there one ticket and one email even if the same message arrives twice? |
+| 6 | Eventarc | Who gave the seat to the waiting person, and what started it? Of the four emails, why did `web` send some and the worker the others? |
+| 8 | Jobs and Cloud Scheduler | Why is `housekeeping` a job and not a service? |
+| 10 | Drift | Where did the differences in `./lab drift` come from? |
 
 # Further (optional, goals only)
 
-- When the event is full, answer "full" without a transaction, and measure Mission 11 again
+- Measure Mission 9 again at concurrency 2 (`rush-c`) and compare instances and response times
+- When the event is full, answer "full" without a transaction, and measure Mission 9 again
 - Split the seat counter across several documents and measure again
-- Add one alert that would have caught Mission 6's failure
-- Find Mission 5's subscription change in the Terraform code (`infra/events.tf`) and write down how to make it in code instead of the Console
+- Add one alert that would have caught Mission 5's failure
+- Find the trust you clicked together in Mission 2 in the Terraform code (`infra/`) and write down how to build it in code
 
 # Shortcuts
 
-All run from `~/gdgoc-tickets`.
+All run from `~/gdgoc-tickets` in Cloud Shell.
 
 | Command | What it does |
 |---|---|
-| `./lab up` | Build everything. Run it again to put the code's settings back |
+| `./lab up` | Build all the infrastructure. Run it again to put the code's settings back |
 | `./lab iam` | Every account's permissions and why |
-| `./lab github` | Build the keyless sign-in; print the three variables to add on GitHub |
+| `./lab github` | (Optional) build Mission 2's keyless sign-in for you and print the variable values |
 | `./lab mail on`, `./lab mail off` | Turn real email on or off |
-| `./lab event ID [--opens-in MIN] [--seats N] [--waitlist N]` | (Optional) Create a published event. The lab uses **새 행사 만들기** in the admin pages |
 | `./lab load EVENT_ID [--users N] [--minutes M]` | Load test |
 | `./lab coldstart` | First-request and later-request times |
-| `./lab code` | An organizer's sign-in code (while email is off) |
 | `./lab check [NAME]`, `./lab check --report` | Checks and the report |
 | `./lab drift` | Differences between your Console changes and the code |
-| `./lab pause` | (Optional) Mission 12's pause in one command |
+| `./lab pause` | (Optional) Mission 10's pause in one command |
+| `./lab event ID [--opens-in MIN]` | (Optional) Create a published event; the lab uses the admin pages |
+| `./lab code` | An organizer's sign-in code (while email is off) |
 | `./lab down` | Delete everything the lab made |
